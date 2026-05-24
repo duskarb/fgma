@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Poster Generator</title>
+<!-- Pretendard Font -->
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+<!-- jQuery & multilingual.js -->
+<script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/multilingual.js@0.1.41/dist/jquery.multilingual.min.js"></script>
+<!-- html2canvas -->
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+<!-- gif.js -->
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.min.js"></script>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --color-border-tertiary: #ccc;
+  --color-text-primary: #000;
+  --color-text-secondary: #666;
+  --color-background-primary: #fff;
+  --color-panel: #f7f7f4;
+  --color-surface: #ffffff;
+  --color-accent: #0d99ff;
+}
+body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden; background: #d8d8d4; color: var(--color-text-primary); }
+
+/* multilingual.js classes */
+.text-block { font-family: "Helvetica", "Helvetica Neue", Arial, sans-serif; }
+.ml-en { font-family: "Helvetica", "Helvetica Neue", Arial, sans-serif; }
+.ml-ko { font-family: "Pretendard", sans-serif; }
+.ml-num { font-family: "Helvetica", "Helvetica Neue", Arial, sans-serif; }
+
+.wrap { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+.panel { padding: 12px; border-right: 1px solid var(--color-border-tertiary); background: var(--color-panel); display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.f { display: flex; flex-direction: column; gap: 6px; }
+label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-secondary); }
+
+.tool-section { background: var(--color-surface); border: 1px solid #d7d7d2; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.tool-section.compact-tools { padding: 0; border: none; background: transparent; }
+.button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.button-row.three { grid-template-columns: repeat(3, 1fr); }
+.check-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.check-row label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; letter-spacing: 0; text-transform: none; color: #333; }
+.color-input { width:100%; height:32px; cursor:pointer; border:1px solid #ccc; padding:0; background: transparent; }
+.action-area { position: sticky; bottom: -12px; margin: 0 -12px -12px; padding: 10px 12px 12px; background: linear-gradient(to top, var(--color-panel) 82%, rgba(247,247,244,0)); display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #d6d6d0; }
+
+.sl { display: flex; flex-direction: column; gap: 2px; }
+.sl-r { display: flex; justify-content: space-between; }
+.sv { font-size: 11px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; height: 1px; appearance: none; background: var(--color-border-tertiary); cursor: pointer; margin: 5px 0; }
+input[type=range]::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; background: var(--color-text-primary); border-radius: 0; }
+
+.btns { display: flex; flex-direction: column; gap: 6px; }
+.btn { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 9px; cursor: pointer; border: none; font-weight: bold; min-height: 32px; }
+.btn-g { background: var(--color-text-primary); color: var(--color-background-primary); }
+.btn-e { background: transparent; border: 1px solid var(--color-border-tertiary); color: var(--color-text-secondary); }
+.btn-add { background: #eee; border: 1px solid #ccc; color: #333; }
+.btn:disabled { opacity: .38; cursor: not-allowed; }
+.btn-g:disabled { background: #777; }
+
+.cw { display: flex; align-items: center; justify-content: center; padding: 28px; background: #dededa; position: relative; overflow: auto; height: 100vh;}
+
+#workspace {
+  position: relative;
+  width: 595px;
+  height: 842px;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+#editor-layer {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: inherit;
+  z-index: 10;
+}
+
+#canvas-layer {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 20;
+  display: none;
+}
+
+.text-block {
+  position: absolute;
+  white-space: pre-wrap;
+  outline: 1px solid transparent;
+  line-height: 1.1;
+  color: inherit;
+  word-break: keep-all;
+  user-select: none;
+}
+.text-block:hover {
+  outline: 1px dashed #ccc;
+  cursor: pointer;
+}
+.text-block.selected {
+  outline: 1.5px solid #0d99ff;
+  cursor: move;
+}
+.text-block.editing {
+  outline: 1.5px solid #0d99ff;
+  cursor: text;
+  user-select: auto;
+}
+
+.stat { font-size: 11px; color: var(--color-text-secondary); text-align: center; min-height: 16px; font-weight: bold; }
+
+/* ── Figma-style active controls ── */
+#active-controls { display: none; flex-direction: column; gap: 8px; }
+.prop-section { display: flex; flex-direction: column; gap: 6px; }
+.prop-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.prop-field { display: flex; align-items: center; gap: 5px; background: #f2f2f2; height: 28px; padding: 0 7px; border: 1px solid transparent; }
+.prop-field:hover { border-color: #d0d0d0; }
+.prop-field:focus-within { border-color: #0d99ff; background: #fff; }
+.prop-icon { flex-shrink: 0; width: 14px; color: #bbb; cursor: ew-resize; user-select: none; display: flex; align-items: center; justify-content: center; }
+.prop-icon:hover { color: #555; }
+.prop-input { border: none; background: transparent; font-size: 11px; font-family: inherit; flex: 1; width: 0; outline: none; text-align: right; color: var(--color-text-primary); -moz-appearance: textfield; }
+.prop-input::-webkit-inner-spin-button, .prop-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.align-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.align-btn { height: 28px; border: 1px solid transparent; background: #f2f2f2; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #bbb; }
+.align-btn:hover { border-color: #d0d0d0; color: #444; }
+.align-btn.active { background: #deeeff; border-color: #0d99ff; color: #0d99ff; }
+.color-row { display: flex; align-items: center; gap: 7px; background: #f2f2f2; height: 28px; padding: 0 7px; border: 1px solid transparent; }
+.color-row:hover { border-color: #d0d0d0; }
+.color-row:focus-within { border-color: #0d99ff; background: #fff; }
+.color-swatch { width: 14px; height: 14px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.2); position: relative; cursor: pointer; }
+.color-swatch input[type=color] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; padding: 0; border: none; }
+.color-hex-in { border: none; background: transparent; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; flex: 1; width: 0; outline: none; color: var(--color-text-primary); text-transform: uppercase; }
+.prop-btn-sm { height: 28px; border: 1px solid transparent; background: #f2f2f2; cursor: pointer; font-size: 10px; letter-spacing: 0.04em; color: #666; }
+.prop-btn-sm:hover { border-color: #d0d0d0; }
+.btn-del { height: 28px; width: 100%; border: 1px solid transparent; background: #f2f2f2; cursor: pointer; font-size: 10px; letter-spacing: 0.06em; color: #c03030; }
+.btn-del:hover { background: #fff0f0; border-color: #f5c0c0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="panel">
+    <div class="tool-section compact-tools">
+      <input class="color-input" type="color" id="bgColor" value="#95e165" oninput="updateBgColor(this.value)" title="배경 색상" />
+    </div>
+
+    <div class="tool-section" id="editSection" style="display:none;">
+      <div id="active-controls">
+        <div class="prop-section">
+          <div class="prop-row">
+            <div class="prop-field">
+              <span class="prop-icon" id="scrub-x" title="X Position">X</span>
+              <input class="prop-input" type="number" id="posX" min="-500" max="1000" step="1" value="0" oninput="updateActivePosition('left', this.value)" />
+            </div>
+            <div class="prop-field">
+              <span class="prop-icon" id="scrub-y" title="Y Position">Y</span>
+              <input class="prop-input" type="number" id="posY" min="-500" max="1200" step="1" value="0" oninput="updateActivePosition('top', this.value)" />
+            </div>
+          </div>
+        </div>
+        <!-- Size + Weight -->
+        <div class="prop-section">
+        <div class="prop-row">
+          <div class="prop-field">
+            <span class="prop-icon" id="scrub-size" title="Font Size — drag to change">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1L9.5 11H8.2L7.1 8H4.9L3.8 11H2.5L6 1ZM6 3.4L5.3 6.5H6.7L6 3.4Z"/></svg>
+            </span>
+            <input class="prop-input" type="number" id="fontSize" min="10" max="300" step="1" value="24" oninput="updateActiveSize(this.value)" />
+          </div>
+          <div class="prop-field">
+            <span class="prop-icon" id="scrub-weight" title="Font Weight — drag to change" style="font-weight:800; font-size:12px; letter-spacing:-0.05em;">B</span>
+            <input class="prop-input" type="number" id="fontWeight" min="100" max="900" step="100" value="400" oninput="updateActiveWeight(this.value)" />
+          </div>
+        </div>
+        <div class="prop-row">
+          <div class="prop-field">
+            <span class="prop-icon" id="scrub-lh" title="Line Height — drag to change">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="0" y="0" width="12" height="1.5"/><rect x="0" y="10.5" width="12" height="1.5"/><path d="M6 3.5L4.3 5.2H5.2V6.8H4.3L6 8.5L7.7 6.8H6.8V5.2H7.7L6 3.5Z"/></svg>
+            </span>
+            <input class="prop-input" type="number" id="lineHeight" min="0.5" max="3.0" step="0.05" value="1.1" oninput="updateActiveLineHeight(this.value)" />
+          </div>
+          <div class="prop-field">
+            <span class="prop-icon" id="scrub-letter" title="Letter Spacing — drag to change">AV</span>
+            <input class="prop-input" type="number" id="letterSpacing" min="-20" max="80" step="0.5" value="0" oninput="updateActiveLetterSpacing(this.value)" />
+          </div>
+        </div>
+        <div class="prop-row">
+          <div class="prop-field">
+            <span class="prop-icon" id="scrub-width" title="Box Width — drag to change">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M0 6L2.5 4V5.2H9.5V4L12 6L9.5 8V6.8H2.5V8L0 6Z"/></svg>
+            </span>
+            <input class="prop-input" type="number" id="boxWidth" min="50" max="800" step="1" value="550" oninput="updateActiveWidth(this.value)" />
+          </div>
+        </div>
+      </div>
+      <!-- Color -->
+      <div class="prop-section">
+        <div class="color-row">
+          <div class="color-swatch" id="colorSwatch" style="background:#000000;">
+            <input type="color" id="textColor" value="#000000" oninput="updateActiveColor(this.value)" />
+          </div>
+          <input class="color-hex-in" type="text" id="colorHex" value="000000" maxlength="6" oninput="syncColorFromHex(this.value)" />
+        </div>
+      </div>
+      <!-- Alignment -->
+      <div class="prop-section">
+        <div class="align-row">
+          <button class="align-btn" id="align-left" onclick="alignActive('left')">
+            <svg width="14" height="11" viewBox="0 0 14 11" fill="currentColor"><rect x="0" y="0" width="14" height="2" rx="1"/><rect x="0" y="4.5" width="9" height="2" rx="1"/><rect x="0" y="9" width="11" height="2" rx="1"/></svg>
+          </button>
+          <button class="align-btn" id="align-center" onclick="alignActive('center')">
+            <svg width="14" height="11" viewBox="0 0 14 11" fill="currentColor"><rect x="0" y="0" width="14" height="2" rx="1"/><rect x="2.5" y="4.5" width="9" height="2" rx="1"/><rect x="1.5" y="9" width="11" height="2" rx="1"/></svg>
+          </button>
+          <button class="align-btn" id="align-right" onclick="alignActive('right')">
+            <svg width="14" height="11" viewBox="0 0 14 11" fill="currentColor"><rect x="0" y="0" width="14" height="2" rx="1"/><rect x="5" y="4.5" width="9" height="2" rx="1"/><rect x="3" y="9" width="11" height="2" rx="1"/></svg>
+          </button>
+        </div>
+      </div>
+      <!-- Layer + Delete -->
+      <div class="prop-section">
+        <div class="prop-row">
+          <button class="prop-btn-sm" onclick="layerActive('up')">▲ 앞으로</button>
+          <button class="prop-btn-sm" onclick="layerActive('down')">▼ 뒤로</button>
+        </div>
+        <button class="btn-del" onclick="deleteActiveBlock()">삭제</button>
+      </div>
+      </div>
+    </div>
+
+    <div class="tool-section">
+      <div class="check-row">
+        <label><input type="checkbox" id="v-grid" checked onchange="markDirty('visual')" /> Grid</label>
+        <label><input type="checkbox" id="v-pts" checked onchange="markDirty('visual')" /> Points</label>
+        <label><input type="checkbox" id="v-loop" onchange="markDirty('motion')" /> Loop</label>
+      </div>
+      <div class="sl">
+        <div class="sl-r"><label>중력점 간격</label><span class="sv" id="vpsd">6</span></div>
+        <input type="range" id="stride" min="4" max="20" value="6" oninput="updateSliderValue('vpsd', this.value); markDirty('warp')" />
+      </div>
+      <div class="sl">
+        <div class="sl-r"><label>중력점 크기</label><span class="sv" id="vps">4</span></div>
+        <input type="range" id="sps" min="1" max="15" value="4" oninput="updateSliderValue('vps', this.value); markDirty('visual')" />
+      </div>
+      <div class="sl">
+        <div class="sl-r"><label>그리드 간격</label><span class="sv" id="vgs">20</span></div>
+        <input type="range" id="sgs" min="5" max="100" value="20" oninput="updateSliderValue('vgs', this.value); markDirty('visual')" />
+      </div>
+      <div class="sl">
+        <div class="sl-r"><label>왜곡 강도</label><span class="sv" id="vs">200</span></div>
+        <input type="range" id="ss" min="0" max="600" value="200" oninput="updateSliderValue('vs', this.value); markDirty('visual')" />
+      </div>
+      <div class="sl">
+        <div class="sl-r"><label>감쇠율</label><span class="sv" id="vd">1.2</span></div>
+        <input type="range" id="sd" min="8" max="28" value="12" oninput="updateSliderValue('vd', (this.value/10).toFixed(1)); markDirty('warp')" />
+      </div>
+      <div class="sl">
+        <div class="sl-r"><label>근거리 보호</label><span class="sv" id="ve">20</span></div>
+        <input type="range" id="se" min="1" max="100" value="20" oninput="updateSliderValue('ve', this.value); markDirty('warp')" />
+      </div>
+    </div>
+
+    <div class="action-area">
+      <div class="stat" id="stat"></div>
+      <div class="btns">
+        <button class="btn btn-e" id="btn-edit" onclick="toggleEditMode()" style="display:none;">EDIT</button>
+        <button class="btn btn-g" id="btn-gen" onclick="generate()">GENERATE</button>
+        <div class="button-row three">
+          <button class="btn btn-e" onclick="exportPNG()">PNG</button>
+          <button class="btn btn-e" id="btn-video" onclick="exportVideo()" disabled>VIDEO</button>
+          <button class="btn btn-e" id="btn-gif" onclick="exportGIF()" disabled>GIF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="cw">
+    <div id="workspace">
+      <div id="editor-layer">
+        <div class="text-block" style="left: 20px; top: 20px; font-size: 48px; font-weight: 700; color: #ffffff;">Free Admission /<br>RSVP Required</div>
+        <div class="text-block" style="left: 20px; top: 120px; font-size: 140px; font-weight: 900; line-height: 0.8; letter-spacing:-0.02em;">KAIST<br>DESIGN<br>FORUM<br>2026</div>
+        <div class="text-block" style="left: 20px; top: 320px; font-size: 32px; font-weight: 700; color: #ffffff; letter-spacing:-0.03em;">미래를 묻는 기계들<br>Machines That Ask Questions</div>
+        <div class="text-block" style="left: 20px; top: 480px; font-size: 36px; font-weight: 800; color: #a020f0;">6월 12일 오후 4시</div>
+        <div class="text-block" style="left: 360px; top: 480px; font-size: 28px; font-weight: 800; text-align: right; width: 220px; line-height:1.2;">카이스트<br>N25<br>산업디자인학과동<br><span style="font-weight:400; font-size:24px;">1F Lecture Hall</span></div>
+        <div class="text-block" style="left: 20px; top: 560px; font-size: 18px; font-weight: 400; color: #ffffff; line-height:1.4;">16:00 Opening 개회<br>16:10 Keynote Talk 토크세션<br>17:00 Panel Discussion 패널 토론<br>17:40 Q&A 질의응답<br>18:00 Closing 끝?</div>
+        
+        <div class="text-block" style="left: 20px; top: 720px; font-size: 18px; font-weight: 700;">Speaker 연사 소개</div>
+        <div class="text-block" style="left: 20px; top: 750px; font-size: 20px; font-weight: 700; color: #a020f0; width: 260px;">여남규 Namkyu Yeo<br><span style="font-weight:400; font-size:16px;">(KAIST 산업디자인학과, Visual Instruments lab)</span></div>
+        <div class="text-block" style="left: 290px; top: 750px; font-size: 20px; font-weight: 700; color: #a020f0; width: 260px;">일론 머스크 Elon Musk<br><span style="font-weight:400; font-size:16px;">(Space X 및 Tesla CEO)</span></div>
+        
+        <div class="text-block" style="left: 20px; top: 815px; font-size: 22px; font-weight: 900; letter-spacing:-0.03em;">KAIST 산업디자인학과</div>
+        <div class="text-block" style="left: 350px; top: 820px; font-size: 12px; font-weight: 400; text-align: right; width: 220px;">문의: 여남규(prism011312@kaist.ac.kr)</div>
+      </div>
+      <canvas id="canvas-layer" width="595" height="842"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const W = 595, H = 842;
+let currentBgColor = '#95e165';
+let activeBlock = null;
+
+// Caching Variables
+let sourceImageData = null;
+let displacementMap = null;
+let cachedBgRgb = null;
+let cachedMasses = [];
+let cachedFinalStr = 200;
+let gifWorkerURL = null;
+let hasGenerated = false;
+let renderNeedsUpdate = false;
+
+// Initialize worker blob to avoid CORS issues with gif.js
+fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+  .then(res => res.blob())
+  .then(blob => {
+    gifWorkerURL = URL.createObjectURL(blob);
+    updateExportState();
+  });
+
+function hexToRgb(hex) {
+  var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : {r: 255, g: 255, b: 255};
+}
+
+function rgb2hex(rgb) {
+  if (/^#[0-9A-F]{6}$/i.test(rgb)) return rgb;
+  const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+  if (!match) return "#000000";
+  function hex(x) { return ("0" + parseInt(x).toString(16)).slice(-2); }
+  return "#" + hex(match[1]) + hex(match[2]) + hex(match[3]);
+}
+
+function applyMultilingual(el) {
+  const text = $(el).text();
+  $(el).html(text);
+  $(el).multilingual(['en', 'ko', 'num']);
+}
+
+function updateBgColor(val) {
+  currentBgColor = val;
+  document.getElementById('workspace').style.background = val;
+  markDirty('layout');
+}
+
+function updateSliderValue(id, value) {
+  document.getElementById(id).textContent = value;
+}
+
+function updateExportState() {
+  document.getElementById('btn-video').disabled = !hasGenerated || renderNeedsUpdate;
+  document.getElementById('btn-gif').disabled = !hasGenerated || renderNeedsUpdate || !gifWorkerURL;
+}
+
+function markDirty(type = 'layout') {
+  if (type === 'visual' && hasGenerated && !renderNeedsUpdate && displacementMap) {
+    const targetCanvas = document.getElementById('canvas-layer');
+    if (targetCanvas.style.display !== 'none') {
+      cachedFinalStr = +document.getElementById('ss').value;
+      renderFrame(
+        cachedFinalStr,
+        targetCanvas.getContext('2d'),
+        document.getElementById('v-grid').checked,
+        document.getElementById('v-pts').checked,
+        +document.getElementById('sps').value,
+        +document.getElementById('sgs').value
+      );
+    }
+    updateExportState();
+    return;
+  }
+
+  if (type === 'motion') {
+    updateExportState();
+    return;
+  }
+
+  renderNeedsUpdate = hasGenerated;
+  if (renderNeedsUpdate) {
+    document.getElementById('stat').textContent = '';
+    document.getElementById('btn-gen').style.display = 'block';
+  }
+  updateExportState();
+}
+
+// Draggable & Editable Logic (Figma-style)
+const editorLayer = document.getElementById('editor-layer');
+let isDragging = false;
+let currentX;
+let currentY;
+let initialX;
+let initialY;
+
+function selectBlock(block) {
+  if (activeBlock && activeBlock !== block) {
+    deselectBlock(activeBlock);
+  }
+  activeBlock = block;
+  block.classList.add('selected');
+  document.getElementById('editSection').style.display = 'flex';
+  document.getElementById('active-controls').style.display = 'flex';
+
+  const style = window.getComputedStyle(block);
+
+  document.getElementById('posX').value = parseInt(block.style.left) || 0;
+  document.getElementById('posY').value = parseInt(block.style.top) || 0;
+  document.getElementById('fontSize').value = parseInt(style.fontSize);
+  document.getElementById('fontWeight').value = style.fontWeight;
+  document.getElementById('lineHeight').value = parseFloat(block.style.lineHeight || '1.1');
+  document.getElementById('letterSpacing').value = parseFloat(style.letterSpacing) || 0;
+  document.getElementById('boxWidth').value = parseInt(block.style.width) || block.offsetWidth;
+
+  const hex = rgb2hex(style.color);
+  document.getElementById('textColor').value = hex;
+  updateColorUI(hex);
+  updateAlignButtons(block.style.textAlign || 'left');
+}
+
+function deselectBlock(block) {
+  if(!block) return;
+  block.classList.remove('selected');
+  block.classList.remove('editing');
+  block.contentEditable = "false";
+  if (block.textContent.trim()) {
+    applyMultilingual(block);
+  } else {
+    block.remove();
+  }
+}
+
+function deselectAll() {
+  if (activeBlock) {
+    deselectBlock(activeBlock);
+    activeBlock = null;
+    document.getElementById('editSection').style.display = 'none';
+    document.getElementById('active-controls').style.display = 'none';
+  }
+}
+
+function setupBlock(block) {
+  applyMultilingual(block);
+  block.addEventListener('mousedown', dragStart);
+  
+  block.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    editBlockContent(block);
+  });
+
+  block.addEventListener('input', () => {
+    markDirty('layout');
+  });
+
+  block.addEventListener('blur', () => {
+    if (block.classList.contains('editing')) {
+      block.classList.remove('editing');
+      block.contentEditable = "false";
+      applyMultilingual(block);
+      markDirty('layout');
+    }
+  });
+}
+
+function editBlockContent(block) {
+  selectBlock(block);
+  block.contentEditable = "true";
+  block.classList.add('editing');
+  block.focus();
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function updateActiveSize(val) {
+  if(activeBlock) activeBlock.style.fontSize = val + 'px';
+  markDirty('layout');
+}
+
+function updateActiveWeight(val) {
+  if(activeBlock) activeBlock.style.fontWeight = val;
+  markDirty('layout');
+}
+
+function updateActiveLineHeight(val) {
+  if(activeBlock) activeBlock.style.lineHeight = val;
+  markDirty('layout');
+}
+
+function updateActiveLetterSpacing(val) {
+  if(activeBlock) activeBlock.style.letterSpacing = val + 'px';
+  markDirty('layout');
+}
+
+function updateActiveWidth(val) {
+  if(activeBlock) activeBlock.style.width = val + 'px';
+  markDirty('layout');
+}
+
+function updateActivePosition(prop, val) {
+  if(activeBlock) activeBlock.style[prop] = val + 'px';
+  markDirty('layout');
+}
+
+function updateActiveColor(val) {
+  if(activeBlock) activeBlock.style.color = val;
+  updateColorUI(val);
+  markDirty('layout');
+}
+
+function alignActive(align) {
+  if(activeBlock) {
+    activeBlock.style.textAlign = align;
+    updateAlignButtons(align);
+    markDirty('layout');
+  }
+}
+
+function updateAlignButtons(align) {
+  ['left','center','right'].forEach(a => {
+    document.getElementById('align-' + a).classList.toggle('active', a === align);
+  });
+}
+
+function updateColorUI(hex) {
+  document.getElementById('colorSwatch').style.background = hex;
+  document.getElementById('colorHex').value = hex.replace('#','').toUpperCase();
+}
+
+function syncColorFromHex(val) {
+  if(val.length === 6 && /^[0-9A-Fa-f]{6}$/.test(val)) {
+    const hex = '#' + val;
+    document.getElementById('textColor').value = hex;
+    document.getElementById('colorSwatch').style.background = hex;
+    if(activeBlock) activeBlock.style.color = hex;
+    markDirty('layout');
+  }
+}
+
+function initScrubbing() {
+  const scrubs = [
+    { id: 'scrub-x',      input: 'posX',       speed: 1,    min: -500, max: 1000, step: 1 },
+    { id: 'scrub-y',      input: 'posY',       speed: 1,    min: -500, max: 1200, step: 1 },
+    { id: 'scrub-size',   input: 'fontSize',   speed: 0.5,  min: 10,  max: 300, step: 1 },
+    { id: 'scrub-weight', input: 'fontWeight',  speed: 5,    min: 100, max: 900, step: 100 },
+    { id: 'scrub-lh',    input: 'lineHeight',  speed: 0.01, min: 0.5, max: 3.0, step: 0.05 },
+    { id: 'scrub-letter', input: 'letterSpacing', speed: 0.08, min: -20, max: 80, step: 0.5 },
+    { id: 'scrub-width', input: 'boxWidth',    speed: 1,    min: 50,  max: 800, step: 1 },
+  ];
+  scrubs.forEach(({ id, input, speed, min, max, step }) => {
+    const label = document.getElementById(id);
+    const inp   = document.getElementById(input);
+    if (!label || !inp) return;
+    let startX, startVal;
+    label.addEventListener('mousedown', e => {
+      startX = e.clientX;
+      startVal = parseFloat(inp.value);
+      document.body.style.cursor = 'ew-resize';
+      const onMove = e => {
+        const raw = startVal + (e.clientX - startX) * speed;
+        const snapped = Math.round(raw / step) * step;
+        inp.value = Math.min(max, Math.max(min, +snapped.toFixed(4)));
+        inp.dispatchEvent(new Event('input'));
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+    });
+  });
+}
+
+function layerActive(dir) {
+  if(!activeBlock) return;
+  const parent = activeBlock.parentNode;
+  if (dir === 'up') {
+    parent.appendChild(activeBlock);
+  } else if (dir === 'down') {
+    parent.insertBefore(activeBlock, parent.firstChild);
+  }
+  markDirty('layout');
+}
+
+function deleteActiveBlock() {
+  if(activeBlock) {
+    activeBlock.remove();
+    activeBlock = null;
+    document.getElementById('editSection').style.display = 'none';
+    document.getElementById('active-controls').style.display = 'none';
+    markDirty('layout');
+  }
+}
+
+function addTextBlock(text = 'New Text (새 텍스트)') {
+  const div = document.createElement('div');
+  div.className = 'text-block';
+  div.style.left = '50px';
+  div.style.top = '50px';
+  div.style.fontSize = '40px';
+  div.style.fontWeight = '400';
+  div.textContent = text;
+  editorLayer.appendChild(div);
+  setupBlock(div);
+  selectBlock(div);
+  markDirty('layout');
+}
+
+function addTextBlockAt(x, y, text = 'New Text') {
+  addTextBlock(text);
+  activeBlock.style.left = Math.round(x) + 'px';
+  activeBlock.style.top = Math.round(y) + 'px';
+  document.getElementById('posX').value = Math.round(x);
+  document.getElementById('posY').value = Math.round(y);
+}
+
+function dragStart(e) {
+  let target = e.target;
+  if(target.tagName === 'SPAN') {
+    target = target.closest('.text-block');
+  }
+  if(!target || !target.classList.contains('text-block')) return;
+  if (target !== activeBlock) selectBlock(target);
+  if(target.classList.contains('editing')) return; 
+  
+  isDragging = true;
+  initialX = e.clientX - activeBlock.offsetLeft;
+  initialY = e.clientY - activeBlock.offsetTop;
+  
+  document.addEventListener('mousemove', drag);
+  document.addEventListener('mouseup', dragEnd);
+}
+
+function drag(e) {
+  if(!activeBlock || activeBlock.classList.contains('editing') || !isDragging) return;
+  e.preventDefault();
+  currentX = e.clientX - initialX;
+  currentY = e.clientY - initialY;
+  
+  activeBlock.style.left = currentX + 'px';
+  activeBlock.style.top = currentY + 'px';
+  document.getElementById('posX').value = Math.round(currentX);
+  document.getElementById('posY').value = Math.round(currentY);
+}
+
+function dragEnd(e) {
+  document.removeEventListener('mousemove', drag);
+  document.removeEventListener('mouseup', dragEnd);
+  isDragging = false;
+  markDirty('layout');
+}
+
+document.getElementById('editor-layer').addEventListener('mousedown', (e) => {
+  if(e.target === document.getElementById('editor-layer') || e.target === document.getElementById('workspace')) {
+    deselectAll();
+  }
+});
+
+document.getElementById('editor-layer').addEventListener('dblclick', (e) => {
+  if(e.target !== document.getElementById('editor-layer')) return;
+  const rect = editorLayer.getBoundingClientRect();
+  addTextBlockAt(e.clientX - rect.left, e.clientY - rect.top);
+  editBlockContent(activeBlock);
+});
+
+document.querySelectorAll('.text-block').forEach(setupBlock);
+
+// Generate Gravity Map
+function field(x, y, ms, decay, eps) {
+  let fx = 0, fy = 0;
+  for (const m of ms) {
+    const dx = m.cx - x, dy = m.cy - y;
+    const dist = Math.sqrt(dx * dx + dy * dy) + eps;
+    const f = m.mass / Math.pow(dist, decay);
+    fx += f * dx / dist;
+    fy += f * dy / dist;
+  }
+  return { fx, fy };
+}
+
+// Render a single frame quickly using cached displacement map
+function renderFrame(currentStr, outCtx, showGrid, showPts, ptsSize, gridSpacing) {
+  if(!displacementMap || !sourceImageData) return;
+  
+  const bgRgb = cachedBgRgb;
+  outCtx.fillStyle = `rgb(${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b})`;
+  outCtx.fillRect(0, 0, W, H);
+  
+  const compR = 255 - bgRgb.r; const compG = 255 - bgRgb.g; const compB = 255 - bgRgb.b;
+  const ptsColor = `rgba(${compR}, ${compG}, ${compB}, 0.6)`;
+  
+  if (showPts) {
+    outCtx.fillStyle = ptsColor;
+    const offset = ptsSize / 2;
+    for (const m of cachedMasses) {
+      outCtx.fillRect(m.cx - offset, m.cy - offset, ptsSize, ptsSize);
+    }
+  }
+
+  const img = outCtx.getImageData(0, 0, W, H);
+  const out = img.data;
+  const srcData = sourceImageData;
+  
+  const bgLuma = (bgRgb.r * 299 + bgRgb.g * 587 + bgRgb.b * 114) / 1000;
+  const gridColor = bgLuma > 128 ? [0, 0, 0, 40] : [255, 255, 255, 40];
+
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const i = (py * W + px);
+      const fx = displacementMap[i * 2];
+      const fy = displacementMap[i * 2 + 1];
+      
+      const sx = Math.round(px - fx * currentStr);
+      const sy = Math.round(py - fy * currentStr);
+      const di = i * 4;
+      
+      let isText = false;
+      let si = -1;
+
+      if (sx >= 0 && sx < W && sy >= 0 && sy < H) {
+        si = (sy * W + sx) * 4;
+        const rDiff = Math.abs(srcData[si] - bgRgb.r);
+        const gDiff = Math.abs(srcData[si+1] - bgRgb.g);
+        const bDiff = Math.abs(srcData[si+2] - bgRgb.b);
+        if (rDiff > 15 || gDiff > 15 || bDiff > 15) {
+          isText = true;
+        }
+      }
+
+      if (isText) {
+        out[di] = srcData[si]; out[di+1] = srcData[si+1];
+        out[di+2] = srcData[si+2]; out[di+3] = srcData[si+3];
+      } else {
+        if (showGrid) {
+          if (Math.abs(sx % gridSpacing) <= 1 || Math.abs(sy % gridSpacing) <= 1) {
+            out[di] = Math.min(255, Math.max(0, out[di] * 0.8 + gridColor[0] * 0.2));
+            out[di+1] = Math.min(255, Math.max(0, out[di+1] * 0.8 + gridColor[1] * 0.2));
+            out[di+2] = Math.min(255, Math.max(0, out[di+2] * 0.8 + gridColor[2] * 0.2));
+          }
+        }
+      }
+    }
+  }
+
+  outCtx.putImageData(img, 0, 0);
+}
+
+async function generate() {
+  const stat = document.getElementById('stat');
+  stat.textContent = 'CAPTURING LAYOUT...';
+  deselectAll();
+  document.getElementById('editor-layer').style.display = 'block';
+  document.getElementById('canvas-layer').style.display = 'none';
+
+  try {
+    const canvas = await html2canvas(document.getElementById('workspace'), {
+      width: W, height: H, scale: 1, backgroundColor: currentBgColor, logging: false, useCORS: true
+    });
+    
+    stat.textContent = 'COMPUTING MASSES...';
+    setTimeout(() => {
+      const srcCtx = canvas.getContext('2d', {willReadFrequently:true});
+      sourceImageData = srcCtx.getImageData(0, 0, W, H).data;
+      cachedBgRgb = hexToRgb(currentBgColor);
+      cachedMasses = [];
+      
+      const stride = +document.getElementById('stride').value || 6;
+      for (let y = 0; y < H; y += stride) {
+        for (let x = 0; x < W; x += stride) {
+          const i = (y * W + x) * 4;
+          const rDiff = Math.abs(sourceImageData[i] - cachedBgRgb.r);
+          const gDiff = Math.abs(sourceImageData[i+1] - cachedBgRgb.g);
+          const bDiff = Math.abs(sourceImageData[i+2] - cachedBgRgb.b);
+          if(rDiff > 15 || gDiff > 15 || bDiff > 15) {
+            cachedMasses.push({ cx: x, cy: y, mass: 1.0 });
+          }
+        }
+      }
+
+      stat.textContent = 'CACHING DISPLACEMENT MAP...';
+      
+      setTimeout(() => {
+        const decay = +document.getElementById('sd').value / 10;
+        const eps = +document.getElementById('se').value;
+        cachedFinalStr = +document.getElementById('ss').value;
+        
+        displacementMap = new Float32Array(W * H * 2);
+        
+        for (let py = 0; py < H; py++) {
+          for (let px = 0; px < W; px++) {
+            const { fx, fy } = field(px, py, cachedMasses, decay, eps);
+            const idx = (py * W + px) * 2;
+            displacementMap[idx] = fx;
+            displacementMap[idx + 1] = fy;
+          }
+        }
+        
+        stat.textContent = 'DISTORTING...';
+        setTimeout(() => {
+          const targetCanvas = document.getElementById('canvas-layer');
+          const ctx = targetCanvas.getContext('2d');
+          const showGrid = document.getElementById('v-grid').checked;
+          const showPts = document.getElementById('v-pts').checked;
+          const ptsSize = +document.getElementById('sps').value;
+          const gridSpacing = +document.getElementById('sgs').value;
+          
+          renderFrame(cachedFinalStr, ctx, showGrid, showPts, ptsSize, gridSpacing);
+          
+          document.getElementById('editor-layer').style.display = 'none';
+          targetCanvas.style.display = 'block';
+          document.getElementById('btn-edit').style.display = 'block';
+          document.getElementById('btn-gen').style.display = 'none';
+          
+          hasGenerated = true;
+          renderNeedsUpdate = false;
+          updateExportState();
+          stat.textContent = '';
+        }, 50);
+      }, 50);
+    }, 50);
+  } catch (err) {
+    console.error(err);
+    stat.textContent = 'ERROR CAPTURING.';
+  }
+}
+
+function toggleEditMode() {
+  document.getElementById('editor-layer').style.display = 'block';
+  document.getElementById('canvas-layer').style.display = 'none';
+  document.getElementById('btn-edit').style.display = 'none';
+  document.getElementById('btn-gen').style.display = 'block';
+}
+
+function easeOutCubic(x) {
+  return 1 - Math.pow(1 - x, 3);
+}
+
+function easeInOutSine(x) {
+  return -(Math.cos(Math.PI * x) - 1) / 2;
+}
+
+function getAnimationProgress(currentFrame, totalFrames, isLoop) {
+  if (isLoop) {
+    const x = currentFrame / totalFrames;
+    if (x <= 0.5) {
+      return easeInOutSine(x * 2);
+    } else {
+      return easeInOutSine((1 - x) * 2);
+    }
+  } else {
+    const x = currentFrame / totalFrames;
+    return easeOutCubic(x);
+  }
+}
+
+async function exportGIF() {
+  if (!displacementMap || renderNeedsUpdate) {
+    alert("먼저 [GENERATE] 버튼을 눌러 왜곡 맵을 한 번 계산해주세요!");
+    return;
+  }
+  if (!gifWorkerURL) {
+    alert("GIF 렌더러를 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
+    return;
+  }
+  
+  const stat = document.getElementById('stat');
+  stat.textContent = 'RENDERING GIF... (This may take a while)';
+  
+  cachedFinalStr = +document.getElementById('ss').value;
+  const targetCanvas = document.getElementById('canvas-layer');
+  const ctx = targetCanvas.getContext('2d');
+  
+  const showGrid = document.getElementById('v-grid').checked;
+  const showPts = document.getElementById('v-pts').checked;
+  const isLoop = document.getElementById('v-loop').checked;
+  const ptsSize = +document.getElementById('sps').value;
+  const gridSpacing = +document.getElementById('sgs').value;
+  
+  document.getElementById('editor-layer').style.display = 'none';
+  targetCanvas.style.display = 'block';
+  
+  // Render frames sequentially and push to GIF
+  setTimeout(() => {
+    const gif = new GIF({
+      workers: 4,
+      workerScript: gifWorkerURL,
+      quality: 10,
+      width: W,
+      height: H,
+      transparent: null
+    });
+
+    const totalFrames = 90; // 3 seconds at 30fps
+    
+    for(let i=0; i<=totalFrames; i++) {
+      const progress = getAnimationProgress(i, totalFrames, isLoop);
+      const currentStr = cachedFinalStr * progress;
+      renderFrame(currentStr, ctx, showGrid, showPts, ptsSize, gridSpacing);
+      gif.addFrame(ctx, {copy: true, delay: 33});
+    }
+    
+    if(!isLoop) {
+      // hold last frame
+      for(let i=0; i<30; i++) {
+        gif.addFrame(ctx, {copy: true, delay: 33});
+      }
+    }
+
+    gif.on('finished', function(blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'poster_animation.gif';
+      a.click();
+      stat.textContent = 'GIF EXPORTED!';
+      setTimeout(() => { stat.textContent = ''; }, 3000);
+    });
+
+    gif.render();
+  }, 100);
+}
+
+async function exportVideo() {
+  if (!displacementMap || renderNeedsUpdate) {
+    alert("먼저 [GENERATE] 버튼을 눌러 왜곡 맵을 한 번 계산해주세요!");
+    return;
+  }
+  
+  const stat = document.getElementById('stat');
+  stat.textContent = 'RECORDING VIDEO...';
+  
+  // Update cachedFinalStr from slider in case user changed it
+  cachedFinalStr = +document.getElementById('ss').value;
+  
+  const targetCanvas = document.getElementById('canvas-layer');
+  const ctx = targetCanvas.getContext('2d');
+  const showGrid = document.getElementById('v-grid').checked;
+  const showPts = document.getElementById('v-pts').checked;
+  const isLoop = document.getElementById('v-loop').checked;
+  const ptsSize = +document.getElementById('sps').value;
+  const gridSpacing = +document.getElementById('sgs').value;
+  
+  // Make sure canvas is visible
+  document.getElementById('editor-layer').style.display = 'none';
+  targetCanvas.style.display = 'block';
+
+  // Some browsers support mp4, fallback to webm
+  let mimeType = 'video/mp4';
+  if (!MediaRecorder.isTypeSupported(mimeType)) {
+    mimeType = 'video/webm';
+  }
+
+  const stream = targetCanvas.captureStream(30);
+  const recorder = new MediaRecorder(stream, { mimeType: mimeType });
+  const chunks = [];
+  
+  recorder.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = mimeType === 'video/mp4' ? 'poster_animation.mp4' : 'poster_animation.webm';
+    a.click();
+    stat.textContent = 'VIDEO EXPORTED!';
+    setTimeout(() => { stat.textContent = ''; }, 3000);
+  };
+  
+  recorder.start();
+  
+  const totalFrames = 90; // 3 seconds animation
+  const holdFrames = 30; // 1 second hold at the end if not looping
+  let currentFrame = 0;
+  
+  function drawNextFrame() {
+    if (currentFrame <= totalFrames) {
+      const progress = getAnimationProgress(currentFrame, totalFrames, isLoop);
+      const currentStr = cachedFinalStr * progress;
+      renderFrame(currentStr, ctx, showGrid, showPts, ptsSize, gridSpacing);
+      currentFrame++;
+      requestAnimationFrame(drawNextFrame);
+    } else if (!isLoop && currentFrame <= totalFrames + holdFrames) {
+      renderFrame(cachedFinalStr, ctx, showGrid, showPts, ptsSize, gridSpacing);
+      currentFrame++;
+      requestAnimationFrame(drawNextFrame);
+    } else {
+      recorder.stop();
+      renderFrame(cachedFinalStr, ctx, showGrid, showPts, ptsSize, gridSpacing); // Return to final
+    }
+  }
+  
+  drawNextFrame();
+}
+
+function exportPNG() {
+  const a = document.createElement('a');
+  a.download = 'poster.png';
+  if (document.getElementById('canvas-layer').style.display !== 'none') {
+    a.href = document.getElementById('canvas-layer').toDataURL('image/png');
+    a.click();
+  } else {
+    deselectAll();
+    html2canvas(document.getElementById('workspace')).then(canvas => {
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    });
+  }
+}
+
+updateBgColor(currentBgColor);
+initScrubbing();
+updateExportState();
+</script>
+</body>
+</html>
