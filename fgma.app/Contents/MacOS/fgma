@@ -6,9 +6,24 @@ APP_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$APP_DIR" || exit 1
 
 PORT=3000
+BUILD_NEEDED=0
 
 show_error() {
   /usr/bin/osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with icon caution" >/dev/null 2>&1
+}
+
+run_build() {
+  npm run build || {
+    npm install && npm run build || {
+      show_error "빌드에 실패했습니다. 프로젝트 파일이 모두 있는지 확인해주세요."
+      exit 1
+    }
+  }
+}
+
+start_server() {
+  npm run preview -- --host 0.0.0.0 --port "$PORT" --strictPort >/tmp/fgma-preview.log 2>&1 &
+  SERVER_PID=$!
 }
 
 if ! command -v npm >/dev/null 2>&1; then
@@ -28,19 +43,42 @@ while lsof -nP -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; do
   PORT=$((PORT + 1))
 done
 
-npm run build || {
-  npm install && npm run build || {
-    show_error "빌드에 실패했습니다. 프로젝트 파일이 모두 있는지 확인해주세요."
-    exit 1
-  }
-}
+if [ ! -f "dist/index.html" ]; then
+  BUILD_NEEDED=1
+elif find index.html package.json vite.config.ts tsconfig.json src assets -type f -newer "dist/index.html" | grep -q .; then
+  BUILD_NEEDED=1
+fi
+
+if [ "$BUILD_NEEDED" -eq 1 ]; then
+  run_build
+fi
 
 URL="http://localhost:${PORT}"
 
-npm run preview -- --host 0.0.0.0 --port "$PORT" --strictPort &
-SERVER_PID=$!
+start_server
 trap "kill $SERVER_PID >/dev/null 2>&1" EXIT
 
-sleep 1
-open "$URL"
-wait "$SERVER_PID"
+for _ in {1..30}; do
+  if curl -fsS "$URL" >/dev/null 2>&1; then
+    open "$URL"
+    wait "$SERVER_PID"
+    exit $?
+  fi
+  sleep 0.2
+done
+
+if kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+  open "$URL"
+  wait "$SERVER_PID"
+else
+  if [ "$BUILD_NEEDED" -eq 0 ]; then
+    run_build
+    start_server
+    sleep 1
+    open "$URL"
+    wait "$SERVER_PID"
+  else
+    show_error "빌드에 실패했습니다. 프로젝트 파일이 모두 있는지 확인해주세요."
+    exit 1
+  fi
+fi
