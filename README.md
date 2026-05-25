@@ -68,37 +68,24 @@ The final result is produced through the interaction between the user's visual d
 
 ### Method 1: Launch on macOS
 
-For macOS users, the project includes one double-click app launcher.
-
 1. Install Node.js 18 or higher from <https://nodejs.org/> if it is not installed yet.
-2. Double-click `fgma.app` in the project folder.
+2. Double-click `Start fgma.command` in the project folder.
 3. On the first launch, the script installs the required packages automatically.
 4. The app opens in your default browser.
 
-`Start Poster Generator.command` is kept as a fallback launcher, but most users should open `fgma.app`.
+#### If macOS Blocks the File
 
-#### If macOS Blocks the App
-
-If macOS says Apple cannot check the app for malicious software, this is Gatekeeper blocking a downloaded unsigned app. Use Finder instead of Terminal:
-
-1. Control-click or right-click `fgma.app`.
-2. Choose **Open**.
-3. Click **Open** again in the warning dialog.
-4. After this first approval, double-clicking the file should work normally.
-
-This warning appears because the app was downloaded from the internet and is not Apple-notarized. To remove the warning completely for other people's Macs, the project needs to be packaged as a signed and notarized macOS app with an Apple Developer account.
+If macOS says it cannot verify the file, right-click `Start fgma.command`, choose **Open**, then click **Open** again in the warning dialog. After this one-time approval, double-clicking works normally.
 
 ### Method 2: Launch on Windows
 
-For Windows users, the project includes one double-click batch file.
-
 1. Install Node.js 18 or higher from <https://nodejs.org/> if it is not installed yet.
-2. Double-click `Start Poster Generator (Windows).bat` in the project folder.
+2. Double-click `Start fgma.bat` in the project folder.
 3. On the first launch, the script installs the required packages automatically.
 4. The app opens in your default browser.
 5. Keep the black command window open while using the app. Closing it stops the local server.
 
-If Windows SmartScreen blocks the file, choose **More info** and then **Run anyway**. This warning appears because the file was downloaded from the internet and is not code-signed.
+If Windows SmartScreen blocks the file, choose **More info** and then **Run anyway**.
 
 ### Method 3: Run Manually from the Terminal
 

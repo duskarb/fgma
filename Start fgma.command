@@ -1,6 +1,9 @@
 #!/bin/zsh
 cd "$(dirname "$0")"
 
+# Remove macOS quarantine flag from fgma.app so it can be double-clicked directly
+xattr -dr com.apple.quarantine fgma.app 2>/dev/null
+
 PORT=3000
 BUILD_NEEDED=0
 
