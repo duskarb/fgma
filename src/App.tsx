@@ -113,7 +113,23 @@ export const FONTS: { id: string; label: string; korean: boolean }[] = [
   { id: 'Cormorant Garamond', label: 'Cormorant Garamond', korean: false },
 ];
 
-const initialLayers: TextLayer[] = [];
+const initialLayers: TextLayer[] = [
+  {
+    id: 'default-text',
+    text: '말에 힘(중력)이 있다고..\n\nf(g)=ma\n피그마 아님.\n\n말조심🐎🐴🙊',
+    x: 80,
+    y: 120,
+    width: 800,
+    fontSize: 72,
+    fontWeight: 800,
+    lineHeight: 1.15,
+    letterSpacing: -0.02,
+    color: '#111111',
+    opacity: 1,
+    align: 'left',
+    fontFamily: 'Pretendard',
+  }
+];
 
 const initialSettings: RenderSettings = {
   strength: 520,
