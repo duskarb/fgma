@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 
@@ -24,10 +25,10 @@ if %errorlevel% neq 0 (
 :: 패키지 설치
 if not exist "node_modules" (
     echo 처음 실행 시 필요한 파일을 설치합니다. 잠시 기다려주세요...
-    echo (약 1~2분 소요될 수 있습니다)
+    echo ^(약 1~2분 소요될 수 있습니다^)
     echo.
-    npm install
-    if %errorlevel% neq 0 (
+    call npm install
+    if errorlevel 1 (
         echo.
         echo [오류] 설치에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 실행해주세요.
         pause
@@ -43,8 +44,8 @@ if not exist "dist\index.html" set BUILD_NEEDED=1
 if "%BUILD_NEEDED%"=="1" (
     echo 앱을 빌드하고 있습니다. 잠시 기다려주세요...
     echo.
-    npm run build
-    if %errorlevel% neq 0 (
+    call npm run build
+    if errorlevel 1 (
         echo.
         echo [오류] 빌드에 실패했습니다.
         pause
@@ -65,29 +66,27 @@ if %errorlevel% equ 0 (
     goto find_port
 )
 
-:: 서버를 백그라운드에서 시작
-start /b cmd /c "npx vite preview --host 0.0.0.0 --port %PORT% --strictPort"
-
-:: 서버가 응답할 때까지 기다린 후 브라우저 열기
-echo 브라우저를 여는 중...
-:wait_server
-curl -s "http://localhost:%PORT%" >nul 2>&1
-if %errorlevel% neq 0 (
-    timeout /t 1 /nobreak >nul
-    goto wait_server
-)
-start "" "http://localhost:%PORT%"
-
 echo.
 echo ================================
 echo   실행 완료!
+echo   브라우저가 자동으로 열립니다.
 echo   주소: http://localhost:%PORT%
 echo.
 echo   이 창을 닫으면 앱이 종료됩니다.
 echo ================================
 echo.
 
-:: 창이 닫힐 때까지 서버 유지
-:keep_alive
-timeout /t 3 /nobreak >nul
-goto keep_alive
+start "" "http://localhost:%PORT%"
+
+call npx vite preview --host 0.0.0.0 --port %PORT% --strictPort
+if errorlevel 1 (
+    echo.
+    echo [오류] 로컬 서버 실행에 실패했습니다.
+    echo 위에 표시된 오류 내용을 확인해주세요.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo.
+pause
