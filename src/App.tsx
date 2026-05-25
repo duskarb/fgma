@@ -346,6 +346,18 @@ type ResizeDir = 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 type MarqueeRect = { x: number; y: number; w: number; h: number };
 
+type LayerClipboardPayload = {
+  type: 'fgma-text-layers';
+  version: 1;
+  layers: TextLayer[];
+  primaryId: string;
+};
+
+type TextClipboardPayload = {
+  text: string;
+  sourceLayer: TextLayer | null;
+};
+
 type EditorSnapshot = {
   layers: TextLayer[];
   selectedId: string;
@@ -355,6 +367,16 @@ type EditorSnapshot = {
   orientation: Orientation;
   settings: RenderSettings;
 };
+
+const LAYER_CLIPBOARD_TYPE = 'application/x-fgma-text-layers';
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || target.isContentEditable;
+}
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -392,6 +414,9 @@ export default function App() {
   const historyFeedbackTimerRef = useRef<number | null>(null);
   const undoStackRef = useRef<EditorSnapshot[]>([]);
   const redoStackRef = useRef<EditorSnapshot[]>([]);
+  const layerClipboardRef = useRef<LayerClipboardPayload | null>(null);
+  const textClipboardRef = useRef<TextClipboardPayload | null>(null);
+  const pasteOffsetRef = useRef(1);
   const editorSnapshotRef = useRef<EditorSnapshot>({
     layers: initialLayers,
     selectedId: '',
@@ -543,6 +568,7 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Alt') { e.preventDefault(); setAltHeld(true); return; }
+      if (isEditableTarget(e.target)) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) {
         e.preventDefault();
         redo();
@@ -554,7 +580,6 @@ export default function App() {
         return;
       }
       if (editingId) return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.code === 'Space') {
         e.preventDefault();
         setSpaceHeld(true);
@@ -589,6 +614,98 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [editingId, selectedId, layers]);
+
+  useEffect(() => {
+    const handleCopy = (event: ClipboardEvent) => {
+      if (event.target instanceof HTMLTextAreaElement && editingIdRef.current) {
+        const selectedText = event.target.value.slice(event.target.selectionStart, event.target.selectionEnd);
+        if (selectedText) {
+          const sourceLayer = editorSnapshotRef.current.layers.find((layer) => layer.id === editingIdRef.current) ?? null;
+          textClipboardRef.current = { text: selectedText, sourceLayer: sourceLayer ? structuredClone(sourceLayer) : null };
+          layerClipboardRef.current = null;
+          pasteOffsetRef.current = 1;
+        }
+        return;
+      }
+      if (editingIdRef.current || isEditableTarget(event.target)) return;
+      const snapshot = editorSnapshotRef.current;
+      const selected = snapshot.layers.filter((layer) => snapshot.selectedIds.includes(layer.id));
+      if (selected.length === 0) return;
+
+      const payload: LayerClipboardPayload = {
+        type: 'fgma-text-layers',
+        version: 1,
+        layers: structuredClone(selected),
+        primaryId: snapshot.selectedId,
+      };
+      layerClipboardRef.current = payload;
+      textClipboardRef.current = null;
+      pasteOffsetRef.current = 1;
+      event.clipboardData?.setData(LAYER_CLIPBOARD_TYPE, JSON.stringify(payload));
+      event.clipboardData?.setData('text/plain', selected.map((layer) => layer.text).join('\n'));
+      event.preventDefault();
+    };
+
+    const handlePaste = (event: ClipboardEvent) => {
+      if (editingIdRef.current || isEditableTarget(event.target)) return;
+
+      const rawPayload = event.clipboardData?.getData(LAYER_CLIPBOARD_TYPE);
+      let payload: LayerClipboardPayload | null = null;
+      if (rawPayload) {
+        try {
+          const parsed = JSON.parse(rawPayload) as LayerClipboardPayload;
+          if (parsed.type === 'fgma-text-layers' && Array.isArray(parsed.layers)) payload = parsed;
+        } catch {
+          payload = null;
+        }
+      }
+      const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+      const textPayload = textClipboardRef.current;
+      if (!payload && pastedText.trim()) {
+        event.preventDefault();
+        pasteTextLayer(
+          pastedText,
+          textPayload?.text === pastedText ? textPayload.sourceLayer : selectedLayer,
+        );
+        return;
+      }
+
+      payload ??= layerClipboardRef.current;
+      if (!payload || payload.layers.length === 0) return;
+
+      event.preventDefault();
+      pushUndoSnapshot();
+      const offset = pasteOffsetRef.current * 24;
+      pasteOffsetRef.current += 1;
+
+      const idMap = new Map<string, string>();
+      const copies = payload.layers.map((layer) => {
+        const nextId = uid();
+        idMap.set(layer.id, nextId);
+        return {
+          ...structuredClone(layer),
+          id: nextId,
+          locked: false,
+          x: layer.x + offset,
+          y: layer.y + offset,
+        };
+      });
+      setLayers((current) => [...current, ...copies]);
+
+      const newIds = copies.map((layer) => layer.id);
+      const primaryId = idMap.get(payload.primaryId) ?? newIds[newIds.length - 1];
+      setSelectedIds(newIds);
+      setSelectedId(primaryId);
+      setEditingId(null);
+    };
+
+    window.addEventListener('copy', handleCopy);
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [artboardSize, selectedLayer]);
 
   useEffect(() => {
     return () => {
@@ -763,6 +880,39 @@ export default function App() {
     setLayers((current) => [...current, next]);
     selectOne(next.id);
     setEditingId(next.id);
+  }
+
+  function pasteTextLayer(text: string, sourceLayer: TextLayer | null) {
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+
+    pushUndoSnapshot();
+    const offset = pasteOffsetRef.current * 24;
+    pasteOffsetRef.current += 1;
+    const fallbackLayer = sourceLayer ?? selectedLayer;
+    const defaultX = Math.round(artboardSize.width * 0.18);
+    const defaultY = Math.round(artboardSize.height * 0.18);
+    const next: TextLayer = {
+      id: uid(),
+      text,
+      x: clamp((fallbackLayer?.x ?? defaultX) + offset, 0, artboardSize.width - 40),
+      y: clamp((fallbackLayer?.y ?? defaultY) + offset, 0, artboardSize.height - 40),
+      width: fallbackLayer?.width ?? 340,
+      fontSize: fallbackLayer?.fontSize ?? 42,
+      fontWeight: fallbackLayer?.fontWeight ?? 800,
+      lineHeight: fallbackLayer?.lineHeight ?? 1.05,
+      letterSpacing: fallbackLayer?.letterSpacing ?? 0,
+      color: fallbackLayer?.color ?? '#111111',
+      opacity: fallbackLayer?.opacity ?? 1,
+      align: fallbackLayer?.align ?? 'left',
+      fontFamily: fallbackLayer?.fontFamily ?? 'Pretendard',
+      fontSpans: undefined,
+      rotation: fallbackLayer?.rotation,
+      locked: false,
+    };
+    setLayers((current) => [...current, next]);
+    selectOne(next.id);
+    setEditingId(null);
   }
 
   function duplicateSelected() {
