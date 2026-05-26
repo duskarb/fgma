@@ -8,20 +8,20 @@
 
 ### 기본 화면
 
-![기본 화면](<assets/기본 화면.png>)
+![기본 화면](assets/basic-screen.png)
 
 ### 효과 적용 화면
 
-![효과 적용 화면](<assets/효과 적용 화면.png>)
+![효과 적용 화면](assets/effect-screen.png)
 
 ### 결과 예시
 
-![포스터 예시](<assets/예시2.png>)
+![포스터 예시](assets/example-poster.png)
 
 영상 예시도 확인할 수 있습니다.
 
-- [예시 영상 1 MOV](<assets/예시1.mov>)
-- [예시 영상 2 MP4](<assets/예시3.mp4>)
+- [예시 영상 1 MOV](assets/example-motion.mov)
+- [예시 영상 2 MP4](assets/example-motion.mp4)
 
 ## 무엇을 할 수 있나요?
 
