@@ -1,130 +1,113 @@
-# f(g)=ma — Poster Generator
+# f(g)=ma 포스터 제너레이터
 
-**f(g)=ma** is a generative graphic authoring tool that creates posters from the relationship between typography, density, and gravity-like rules.
-It is not only a tool for making a finished poster, but a system for designing how posters are generated and transformed.
+**f(g)=ma**는 텍스트를 입력하고, 밀도와 중력처럼 작동하는 규칙을 조절해 포스터를 만드는 생성형 그래픽 도구입니다.
 
-사용자는 레이아웃, 텍스트 크기, 두께, 컬러 같은 기본적인 시각 요소를 선택하고, 시스템은 텍스트의 밀도와 중력 규칙을 바탕으로 포스터를 변형하고 생성합니다.
-디자이너는 모든 요소를 직접 배치하는 대신, 결과가 발생하는 조건과 변수들을 조정하며 다양한 출력값을 탐색합니다.
+일반적인 편집 툴처럼 요소를 하나씩 배치하는 대신, 텍스트의 크기, 굵기, 위치, 색, 왜곡 강도 같은 조건을 바꾸며 다양한 포스터 결과를 탐색할 수 있습니다. 한국어와 영어 텍스트를 함께 다룰 수 있고, 정적인 이미지뿐 아니라 움직이는 포스터도 만들 수 있습니다.
 
-이 프로젝트는 완성된 포스터 하나를 디자인하는 것보다, **포스터가 생성되고 변형되는 규칙과 상호작용 방식을 설계하는 생성형 저작 시스템**에 초점을 둡니다.
+## 미리보기
 
-## Concept
+### 기본 화면
 
-Most poster-making tools are based on direct placement: text boxes are moved, resized, aligned, and adjusted by hand.
-**f(g)=ma** approaches poster design differently. Text is not only placed on a surface; it becomes a graphic input that can form density, create mass points, and distort the poster field.
+![기본 화면](<assets/기본 화면.png>)
 
-The title is a variation of the physical formula `F = ma`.
-Here, `g` can be read as **graphic**, **grid**, **gravity**, or **generator**. The poster becomes a field where typography behaves like mass and layout becomes force.
+### 효과 적용 화면
 
-This project does not remove the designer's control.
-Instead, it shifts control from direct arrangement to rule-making, parameter selection, and exploration.
-The final result is produced through the interaction between the user's visual decisions and the system's computational rules.
+![효과 적용 화면](<assets/효과 적용 화면.png>)
 
-## What It Does
+### 결과 예시
 
-- Creates typography-based poster compositions from user-defined text layers.
-- Lets the user control layout, text size, weight, color, and background.
-- Generates density-based mass points from text.
-- Distorts the poster surface through gravity-like parameters.
-- Supports static and animated poster output.
-- Works as a tool for exploring a range of visual possibilities rather than producing one predetermined image.
+![포스터 예시](<assets/예시2.png>)
 
-## Main Controls
+영상 예시도 확인할 수 있습니다.
 
-### Visual Controls
+- [예시 영상 1 MOV](<assets/예시1.mov>)
+- [예시 영상 2 MP4](<assets/예시3.mp4>)
 
-- Add and edit multiple text layers.
-- Choose Korean and English typefaces.
-- Adjust text size, weight, color, rotation, and placement.
-- Set background color.
-- Select artboard size and orientation.
+## 무엇을 할 수 있나요?
 
-### System Controls
+- 여러 개의 텍스트 레이어를 추가하고 편집할 수 있습니다.
+- 한국어와 영어 폰트를 선택할 수 있습니다.
+- 글자 크기, 굵기, 색상, 회전, 위치를 조절할 수 있습니다.
+- 배경색과 아트보드 크기, 방향을 설정할 수 있습니다.
+- 텍스트 밀도를 바탕으로 질량점과 격자를 만들 수 있습니다.
+- 중력처럼 보이는 왜곡 효과를 적용할 수 있습니다.
+- PNG, PDF, WEBM, MP4, GIF 형식으로 결과물을 내보낼 수 있습니다.
 
-- Show or hide the visual grid.
-- Show or hide mass points.
-- Adjust distortion strength.
-- Adjust decay.
-- Adjust point spacing and size.
-- Explore how different text densities change the final poster.
+## 빠른 시작
 
-## Basic Workflow
+### macOS에서 실행하기
 
-1. Open the poster generator in the browser.
-2. Set the artboard size and background color.
-3. Add text layers.
-4. Adjust layout, text size, weight, color, and placement.
-5. Turn on grid or mass point visualization if needed.
-6. Adjust system parameters such as strength, decay, point spacing, and motion amount.
-7. Generate variations by changing text density and visual settings.
-8. Export the final result.
+1. Node.js 18 이상이 설치되어 있지 않다면 [Node.js 공식 사이트](https://nodejs.org/)에서 설치합니다.
+2. 프로젝트 폴더에서 `Start fgma.command` 파일을 더블클릭합니다.
+3. 처음 실행할 때 필요한 패키지가 자동으로 설치됩니다.
+4. 브라우저가 열리면 포스터 제너레이터를 사용할 수 있습니다.
 
-## Getting Started
+macOS에서 파일 실행을 차단하면 `Start fgma.command`를 우클릭한 뒤 **열기**를 선택하고, 경고창에서 다시 **열기**를 누르세요. 한 번 허용하면 이후에는 더블클릭으로 실행됩니다.
 
-### Requirements
+### Windows에서 실행하기
 
-- Node.js v18 or higher
-- npm, which is included with Node.js
+1. Node.js 18 이상이 설치되어 있지 않다면 [Node.js 공식 사이트](https://nodejs.org/)에서 설치합니다.
+2. 프로젝트 폴더에서 `Start fgma.bat` 파일을 더블클릭합니다.
+3. 처음 실행할 때 필요한 패키지가 자동으로 설치됩니다.
+4. 브라우저가 열리면 포스터 제너레이터를 사용할 수 있습니다.
+5. 사용하는 동안 검은 명령 프롬프트 창을 닫지 마세요. 창을 닫으면 앱도 함께 종료됩니다.
 
-### Method 1: Launch on macOS
+Windows SmartScreen이 실행을 막으면 **추가 정보**를 누른 뒤 **실행**을 선택하세요.
 
-1. Install Node.js 18 or higher from <https://nodejs.org/> if it is not installed yet.
-2. Double-click `Start fgma.command` in the project folder.
-3. On the first launch, the script installs the required packages automatically.
-4. The app opens in your default browser.
+### 터미널에서 직접 실행하기
 
-#### If macOS Blocks the File
-
-If macOS says it cannot verify the file, right-click `Start fgma.command`, choose **Open**, then click **Open** again in the warning dialog. After this one-time approval, double-clicking works normally.
-
-### Method 2: Launch on Windows
-
-1. Install Node.js 18 or higher from <https://nodejs.org/> if it is not installed yet.
-2. Double-click `Start fgma.bat` in the project folder.
-3. On the first launch, the script installs the required packages automatically.
-4. The app opens in your default browser.
-5. Keep the black command window open while using the app. Closing it stops the local server.
-
-If Windows SmartScreen blocks the file, choose **More info** and then **Run anyway**.
-
-### Method 3: Run Manually from the Terminal
-
-Open the project folder in Terminal and install dependencies:
+프로젝트 폴더에서 아래 명령어를 실행합니다.
 
 ```bash
 npm install
-```
-
-Start the development server:
-
-```bash
 npm run dev
 ```
 
-Open the local URL shown in the terminal, usually:
+터미널에 표시되는 로컬 주소를 브라우저에서 엽니다. 보통 아래 주소로 실행됩니다.
 
 ```bash
 http://localhost:5173
 ```
 
-## Export
+## 기본 사용 흐름
 
-The project supports poster export depending on the current build configuration:
+1. 앱을 실행합니다.
+2. 아트보드 크기와 배경색을 정합니다.
+3. 텍스트 레이어를 추가합니다.
+4. 글자 크기, 굵기, 색상, 위치, 회전을 조절합니다.
+5. 필요하면 그리드나 질량점을 켜서 구조를 확인합니다.
+6. 왜곡 강도, 감쇠, 포인트 간격, 움직임 값을 조절합니다.
+7. 원하는 결과가 나올 때까지 설정을 바꿔봅니다.
+8. PNG, PDF, WEBM, MP4, GIF 중 필요한 형식으로 내보냅니다.
 
-- PDF for print-oriented static output.
-- MP4 or GIF for animated poster output.
+## 주요 개념
 
-## Built With
+프로젝트 이름 **f(g)=ma**는 물리 공식 `F = ma`에서 출발했습니다.
+
+여기서 `g`는 **graphic**, **grid**, **gravity**, **generator**로 읽을 수 있습니다. 이 도구에서 텍스트는 단순히 읽히는 문자가 아니라, 포스터의 밀도를 만들고 화면을 움직이는 힘처럼 작동합니다.
+
+이 프로젝트는 디자이너의 역할을 없애는 자동 생성기가 아닙니다. 오히려 디자이너가 직접 모든 요소를 배치하는 방식에서 벗어나, 결과가 만들어지는 규칙과 변수를 설계하도록 돕는 도구입니다.
+
+## 개발 정보
 
 - React
 - Vite
-- WebGL
 - TypeScript
-- HTML Canvas / browser-based rendering
+- WebGL
+- HTML Canvas
+- jsPDF
+- gifenc
+- mp4-muxer
 
-## Project Direction
+## English Summary
 
-**f(g)=ma** is not a tool that replaces the designer with an automatic poster generator.
-It is a tool that moves the designer's control from placing every element by hand to designing rules, variables, and conditions.
+**f(g)=ma** is a generative poster-making tool based on typography, density, and gravity-like distortion rules.
 
-In that sense, the project treats typography not only as language, but as force.
+Instead of manually placing every object, the user adjusts visual parameters and system rules. Text becomes a graphic input that creates density, mass points, and motion. The tool supports Korean and English typography, static poster export, and animated poster export.
+
+To run the project, install Node.js 18 or higher, then use `Start fgma.command` on macOS, `Start fgma.bat` on Windows, or run:
+
+```bash
+npm install
+npm run dev
+```
