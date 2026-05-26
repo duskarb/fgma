@@ -174,8 +174,8 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:5173`을 연다.  
-Open `http://localhost:5173` in a browser.
+터미널에 표시되는 로컬 주소를 브라우저에서 연다. 보통 `http://localhost:3000`으로 실행된다.  
+Open the local address shown in the terminal. It usually runs at `http://localhost:3000`.
 
 ## 스택 / Built With
 
