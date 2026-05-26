@@ -1,5 +1,7 @@
 # f(g)=ma
 
+[Live Demo](https://fgma-sage.vercel.app/)
+
 그래픽 디자인의 기본 문법은 배치다.  
 디자이너는 요소를 고르고, 위치를 정하고, 크기를 조절한다.
 
