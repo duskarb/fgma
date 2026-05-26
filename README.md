@@ -18,14 +18,13 @@
 
 ![포스터 예시](assets/example-poster.png)
 
-### 움직이는 포스터 예시
+### 움직이는 포스터 예시 (MP4)
 
-[![움직이는 포스터 예시](assets/example-poster.png)](assets/example-motion.mp4)
+![움직이는 포스터 예시](assets/example-motion.gif)
 
-위 이미지를 클릭하면 MP4 영상 파일을 열 수 있습니다. README 미리보기 환경에서는 영상이 바로 재생되지 않을 수 있어, 가장 호환성이 좋은 MP4 링크를 함께 제공합니다.
+### 움직이는 포스터 예시 (MOV)
 
-- [MP4 영상 열기](assets/example-motion.mp4)
-- [MOV 원본 열기](assets/example-motion.mov)
+![움직이는 포스터 예시](assets/example-motion-mov.gif)
 
 ## 무엇을 할 수 있나요?
 
