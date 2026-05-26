@@ -1,6 +1,13 @@
 export type TextAlign = 'left' | 'center' | 'right';
 
-export type FontSpan = { start: number; end: number; fontFamily: string };
+export type FontSpan = {
+  start: number;
+  end: number;
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  letterSpacing?: number;
+};
 
 export type TextLayer = {
   id: string;

@@ -24,7 +24,7 @@ import {
   Sparkles,
   Type,
 } from 'lucide-react';
-import type { ArtboardSize, RenderSettings, TextLayer } from './types';
+import type { ArtboardSize, FontSpan, RenderSettings, TextLayer } from './types';
 import { createPosterTexture, estimateLayerBounds } from './rendering/posterTexture';
 import { WebglPosterRenderer } from './rendering/webglPosterRenderer';
 import {
@@ -84,6 +84,7 @@ function shortLayerName(layer: TextLayer) {
 function ScrubInput({
   label,
   value,
+  mixedFallback,
   onChange,
   onChangeStart,
   min,
@@ -93,7 +94,8 @@ function ScrubInput({
   suffix,
 }: {
   label: string;
-  value: number;
+  value: number | null; // null = mixed/multiple values
+  mixedFallback?: number;
   onChange: (v: number) => void;
   onChangeStart?: () => void;
   min?: number;
@@ -132,7 +134,7 @@ function ScrubInput({
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (editing) return;
     e.preventDefault();
-    dragState.current = { startX: e.clientX, startVal: value, dragged: false, changeStarted: false };
+    dragState.current = { startX: e.clientX, startVal: value ?? mixedFallback ?? 0, dragged: false, changeStarted: false };
     setScrubCursor();
 
     const onMove = (ev: PointerEvent) => {
@@ -154,7 +156,7 @@ function ScrubInput({
     const finishDrag = () => {
       restoreCursor();
       if (dragState.current && !dragState.current.dragged) {
-        setEditVal(fmt(value));
+        setEditVal(value !== null ? fmt(value) : '');
         setEditing(true);
       }
       dragState.current = null;
@@ -202,7 +204,9 @@ function ScrubInput({
           }}
         />
       ) : (
-        <span className="scrub-value">{fmt(value)}</span>
+        <span className="scrub-value" style={value === null ? { opacity: 0.4, fontStyle: 'italic' } : undefined}>
+          {value !== null ? fmt(value) : 'mixed'}
+        </span>
       )}
       {suffix && <span className="scrub-unit">{suffix}</span>}
     </div>
@@ -302,6 +306,258 @@ function isEditableTarget(target: EventTarget | null) {
     || target.isContentEditable;
 }
 
+// ── Span utilities ────────────────────────────────────────────────
+
+type SpanPatch = Partial<Pick<FontSpan, 'fontFamily' | 'fontSize' | 'fontWeight' | 'letterSpacing'>>;
+
+function spanHasOverride(s: FontSpan): boolean {
+  return s.fontFamily !== undefined || s.fontSize !== undefined
+    || s.fontWeight !== undefined || s.letterSpacing !== undefined;
+}
+
+function mergeAdjacentSpans(spans: FontSpan[]): FontSpan[] {
+  const result: FontSpan[] = [];
+  for (const s of spans) {
+    const last = result[result.length - 1];
+    if (last && last.end === s.start
+      && last.fontFamily === s.fontFamily
+      && last.fontSize === s.fontSize
+      && last.fontWeight === s.fontWeight
+      && last.letterSpacing === s.letterSpacing) {
+      last.end = s.end;
+    } else {
+      result.push({ ...s });
+    }
+  }
+  return result;
+}
+
+/** Apply a style patch to [start, end) in the existing spans, preserving other properties. */
+function patchSpans(
+  existing: FontSpan[] | undefined,
+  start: number,
+  end: number,
+  patch: SpanPatch,
+  textLen: number,
+): FontSpan[] | undefined {
+  start = Math.max(0, start);
+  end = Math.min(textLen, end);
+  if (start >= end) return existing;
+
+  const spans = (existing ?? []).filter((s) => s.start < s.end);
+  const result: FontSpan[] = [];
+
+  // Keep / trim spans outside [start, end)
+  for (const s of spans) {
+    if (s.end <= start || s.start >= end) {
+      result.push(s);
+    } else {
+      if (s.start < start) result.push({ ...s, end: start });
+      if (s.end > end) result.push({ ...s, start: end });
+    }
+  }
+
+  // Build sub-ranges within [start, end), inheriting existing span props then applying patch
+  const inRange = spans
+    .filter((s) => s.start < end && s.end > start)
+    .map((s) => ({ ...s, start: Math.max(s.start, start), end: Math.min(s.end, end) }))
+    .sort((a, b) => a.start - b.start);
+
+  let pos = start;
+  for (const s of inRange) {
+    if (pos < s.start) {
+      const ns: FontSpan = { start: pos, end: s.start, ...patch };
+      if (spanHasOverride(ns)) result.push(ns);
+    }
+    const merged: FontSpan = { ...s, ...patch };
+    if (spanHasOverride(merged)) result.push(merged);
+    pos = s.end;
+  }
+  if (pos < end) {
+    const ns: FontSpan = { start: pos, end, ...patch };
+    if (spanHasOverride(ns)) result.push(ns);
+  }
+
+  result.sort((a, b) => a.start - b.start);
+  const merged = mergeAdjacentSpans(result);
+  return merged.length > 0 ? merged : undefined;
+}
+
+function clearSpanProperties(
+  existing: FontSpan[] | undefined,
+  props: (keyof SpanPatch)[],
+): FontSpan[] | undefined {
+  if (!existing?.length) return existing;
+  const updated = existing
+    .map((span) => {
+      const next = { ...span };
+      for (const prop of props) delete next[prop];
+      return next;
+    })
+    .filter(spanHasOverride);
+  const merged = mergeAdjacentSpans(updated);
+  return merged.length > 0 ? merged : undefined;
+}
+
+function textAreaSelectionToCharRange(textarea: HTMLTextAreaElement) {
+  const toCharIndex = (codeUnitIndex: number) => [...textarea.value.slice(0, codeUnitIndex)].length;
+  return {
+    start: toCharIndex(textarea.selectionStart),
+    end: toCharIndex(textarea.selectionEnd),
+  };
+}
+
+/** Shift span positions after an insertion or deletion. */
+function adjustSpansForTextChange(
+  oldText: string,
+  newText: string,
+  spans: FontSpan[] | undefined,
+): FontSpan[] | undefined {
+  if (!spans?.length) return spans;
+
+  const oc = [...oldText];
+  const nc = [...newText];
+
+  // Find common prefix
+  let pre = 0;
+  while (pre < oc.length && pre < nc.length && oc[pre] === nc[pre]) pre++;
+
+  // Find common suffix
+  let oSuf = 0;
+  let nSuf = 0;
+  while (
+    oSuf < oc.length - pre && nSuf < nc.length - pre
+    && oc[oc.length - 1 - oSuf] === nc[nc.length - 1 - nSuf]
+  ) { oSuf++; nSuf++; }
+
+  const delStart = pre;
+  const delEnd = oc.length - oSuf;   // exclusive
+  const insEnd = nc.length - nSuf;   // exclusive
+
+  // First handle deletion [delStart, delEnd), then insertion at delStart of length (insEnd - delStart)
+  let updated = spans;
+
+  if (delEnd > delStart) {
+    // Delete
+    const count = delEnd - delStart;
+    updated = updated.map((s) => {
+      if (s.end <= delStart) return s;
+      if (s.start >= delEnd) return { ...s, start: s.start - count, end: s.end - count };
+      return { ...s, start: Math.min(s.start, delStart), end: Math.max(delStart, s.end - count) };
+    }).filter((s) => s.start < s.end);
+  }
+
+  const insCount = insEnd - delStart;
+  if (insCount > 0) {
+    // Insert
+    updated = updated.map((s) => {
+      if (s.end <= delStart) return s;
+      if (s.start >= delStart) return { ...s, start: s.start + insCount, end: s.end + insCount };
+      return { ...s, end: s.end + insCount };
+    });
+  }
+
+  return updated.length > 0 ? updated : undefined;
+}
+
+type SelectionStyle = {
+  fontFamily: string | null;
+  fontSize: number | null;
+  fontWeight: number | null;
+  letterSpacing: number | null;
+};
+
+type ResolvedTextStyle = {
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  letterSpacing: number;
+};
+
+function resolvedStyleAt(layer: TextLayer, pos: number): ResolvedTextStyle {
+  const span = layer.fontSpans?.find((s) => pos >= s.start && pos < s.end);
+  return {
+    fontFamily: span?.fontFamily ?? layer.fontFamily ?? 'Pretendard',
+    fontSize: span?.fontSize ?? layer.fontSize,
+    fontWeight: span?.fontWeight ?? layer.fontWeight,
+    letterSpacing: span?.letterSpacing ?? layer.letterSpacing,
+  };
+}
+
+function stylesEqual(a: ResolvedTextStyle, b: ResolvedTextStyle) {
+  return a.fontFamily === b.fontFamily
+    && a.fontSize === b.fontSize
+    && a.fontWeight === b.fontWeight
+    && a.letterSpacing === b.letterSpacing;
+}
+
+function fontFamilyCss(fontFamily: string) {
+  return `'${fontFamily}', 'Apple SD Gothic Neo', Helvetica, Arial, sans-serif`;
+}
+
+function richTextRuns(layer: TextLayer) {
+  const chars = [...layer.text];
+  const runs: { text: string; style: ResolvedTextStyle }[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    const style = resolvedStyleAt(layer, i);
+    const last = runs[runs.length - 1];
+    if (last && stylesEqual(last.style, style)) {
+      last.text += chars[i];
+    } else {
+      runs.push({ text: chars[i], style });
+    }
+  }
+  return runs;
+}
+
+/** Compute the effective style for a text selection range on a layer. null = mixed. */
+function getSelectionStyle(layer: TextLayer, selStart: number, selEnd: number): SelectionStyle {
+  const defaults = {
+    fontFamily: layer.fontFamily ?? 'Pretendard',
+    fontSize: layer.fontSize,
+    fontWeight: layer.fontWeight,
+    letterSpacing: layer.letterSpacing,
+  };
+
+  if (selStart >= selEnd) {
+    // Cursor only – show style of the span at cursor (or layer defaults)
+    const pos = Math.max(0, selStart);
+    const span = layer.fontSpans?.find((s) => pos >= s.start && pos < s.end);
+    return {
+      fontFamily: span?.fontFamily ?? defaults.fontFamily,
+      fontSize: span?.fontSize ?? defaults.fontSize,
+      fontWeight: span?.fontWeight ?? defaults.fontWeight,
+      letterSpacing: span?.letterSpacing ?? defaults.letterSpacing,
+    };
+  }
+
+  let ff: string | null = null, fs: number | null = null, fw: number | null = null, ls: number | null = null;
+  let mixFF = false, mixFS = false, mixFW = false, mixLS = false;
+
+  for (let i = selStart; i < selEnd; i++) {
+    const span = layer.fontSpans?.find((s) => i >= s.start && i < s.end);
+    const cff = span?.fontFamily ?? defaults.fontFamily;
+    const cfs = span?.fontSize ?? defaults.fontSize;
+    const cfw = span?.fontWeight ?? defaults.fontWeight;
+    const cls = span?.letterSpacing ?? defaults.letterSpacing;
+
+    if (i === selStart) { ff = cff; fs = cfs; fw = cfw; ls = cls; }
+    else {
+      if (ff !== cff) mixFF = true;
+      if (fs !== cfs) mixFS = true;
+      if (fw !== cfw) mixFW = true;
+      if (ls !== cls) mixLS = true;
+    }
+  }
+
+  return {
+    fontFamily: mixFF ? null : ff,
+    fontSize: mixFS ? null : fs,
+    fontWeight: mixFW ? null : fw,
+    letterSpacing: mixLS ? null : ls,
+  };
+}
+
 export default function App() {
   const savedSnapshot = useMemo(() => readAutosave(), []);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -338,6 +594,7 @@ export default function App() {
   const hasRenderedRef = useRef(false);
   const exportingRef = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingSel, setEditingSel] = useState<{ start: number; end: number } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [altHeld, setAltHeld] = useState(false);
@@ -729,6 +986,11 @@ export default function App() {
         width: clamp(Math.round(layer.width * widthRatio), 40, maxWidth),
         fontSize: Math.max(8, Math.round(layer.fontSize * typeRatio)),
         letterSpacing: Number((layer.letterSpacing * typeRatio).toFixed(2)),
+        fontSpans: layer.fontSpans?.map((span) => ({
+          ...span,
+          fontSize: span.fontSize === undefined ? undefined : Math.max(8, Math.round(span.fontSize * typeRatio)),
+          letterSpacing: span.letterSpacing === undefined ? undefined : Number((span.letterSpacing * typeRatio).toFixed(2)),
+        })),
       };
     }));
   }
@@ -770,6 +1032,51 @@ export default function App() {
     );
   }
 
+  /**
+   * Apply a style patch to the current text selection (if editing + selection exists),
+   * otherwise fall through to patchSelected on the whole layer.
+   */
+  function patchSelectionSpan(spanPatch: SpanPatch, layerPatch?: Partial<TextLayer>, recordHistory = true) {
+    if (!selectedLayer || selectedLayer.locked) return;
+    const activeSel = editingId === selectedLayer.id ? editingSel : null;
+    const hasTextSel = activeSel && activeSel.start !== activeSel.end;
+
+    if (hasTextSel) {
+      if (recordHistory) pushUndoSnapshot();
+      setLayers((current) =>
+        current.map((layer) => {
+          if (layer.id !== selectedLayer.id) return layer;
+          const newSpans = patchSpans(layer.fontSpans, activeSel.start, activeSel.end, spanPatch, [...layer.text].length);
+          return { ...layer, fontSpans: newSpans };
+        }),
+      );
+    } else {
+      // No text selection – apply to whole layer
+      const patch: Partial<TextLayer> = layerPatch ?? {};
+      const spanPropsToClear: (keyof SpanPatch)[] = [];
+      if (spanPatch.fontFamily !== undefined) patch.fontFamily = spanPatch.fontFamily;
+      if (spanPatch.fontSize !== undefined) patch.fontSize = spanPatch.fontSize;
+      if (spanPatch.fontWeight !== undefined) patch.fontWeight = spanPatch.fontWeight;
+      if (spanPatch.letterSpacing !== undefined) patch.letterSpacing = spanPatch.letterSpacing;
+      if (spanPatch.fontFamily !== undefined) spanPropsToClear.push('fontFamily');
+      if (spanPatch.fontSize !== undefined) spanPropsToClear.push('fontSize');
+      if (spanPatch.fontWeight !== undefined) spanPropsToClear.push('fontWeight');
+      if (spanPatch.letterSpacing !== undefined) spanPropsToClear.push('letterSpacing');
+
+      if (recordHistory) pushUndoSnapshot();
+      setLayers((current) =>
+        current.map((layer) => {
+          if (layer.id !== selectedLayer.id || layer.locked) return layer;
+          return {
+            ...layer,
+            ...patch,
+            fontSpans: clearSpanProperties(layer.fontSpans, spanPropsToClear),
+          };
+        }),
+      );
+    }
+  }
+
   function updateLayer(id: string, patch: Partial<TextLayer>, recordHistory = true) {
     if (recordHistory) pushUndoSnapshot();
     setLayers((current) => current.map((layer) => (layer.id === id && !layer.locked ? { ...layer, ...patch } : layer)));
@@ -783,6 +1090,7 @@ export default function App() {
 
   function finishEditing(layer: TextLayer) {
     setEditingId(null);
+    setEditingSel(null);
     if (layer.text.trim()) return;
     setLayers((current) => {
       const next = current.filter((item) => item.id !== layer.id);
@@ -1192,6 +1500,15 @@ export default function App() {
     window.addEventListener('pointercancel', onUp);
   }
 
+  const activeSel = editingId === selectedLayer?.id ? editingSel : null;
+  const selStyle = selectedLayer
+    ? getSelectionStyle(
+      selectedLayer,
+      activeSel?.start ?? 0,
+      activeSel?.end ?? [...selectedLayer.text].length,
+    )
+    : null;
+
   return (
     <main className="app-shell">
       <aside className="panel">
@@ -1331,7 +1648,7 @@ export default function App() {
 
             {/* Font */}
             <div className="prop-group">
-              <div className="prop-group-label">Font</div>
+              <div className="prop-group-label">Font{selStyle?.fontFamily === null ? ' · mixed' : ''}</div>
               <div className="font-picker">
                 <div className="font-picker-group">
                   <div className="font-group-label">한국어</div>
@@ -1340,9 +1657,10 @@ export default function App() {
                       <button
                         key={f.id}
                         type="button"
-                        className={`font-item${selectedLayer.fontFamily === f.id ? ' is-active' : ''}`}
+                        className={`font-item${(selStyle ? selStyle.fontFamily : selectedLayer.fontFamily) === f.id ? ' is-active' : ''}`}
                         style={{ fontFamily: `'${f.id}', 'Apple SD Gothic Neo', sans-serif` }}
-                        onClick={() => patchSelected({ fontFamily: f.id })}
+                        onPointerDown={(event) => event.preventDefault()}
+                        onClick={() => patchSelectionSpan({ fontFamily: f.id }, { fontFamily: f.id })}
                         title={f.label}
                       >
                         {f.label}
@@ -1357,9 +1675,10 @@ export default function App() {
                       <button
                         key={f.id}
                         type="button"
-                        className={`font-item${selectedLayer.fontFamily === f.id ? ' is-active' : ''}`}
+                        className={`font-item${(selStyle ? selStyle.fontFamily : selectedLayer.fontFamily) === f.id ? ' is-active' : ''}`}
                         style={{ fontFamily: `'${f.id}', Helvetica, Arial, sans-serif` }}
-                        onClick={() => patchSelected({ fontFamily: f.id })}
+                        onPointerDown={(event) => event.preventDefault()}
+                        onClick={() => patchSelectionSpan({ fontFamily: f.id }, { fontFamily: f.id })}
                         title={f.label}
                       >
                         {f.label}
@@ -1374,12 +1693,12 @@ export default function App() {
             <div className="prop-group">
               <div className="prop-group-label">Typography</div>
               <div className="scrub-grid-2">
-                <ScrubInput label="Size" value={selectedLayer.fontSize} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ fontSize: clamp(v, 8, 400) }, false)} step={1} min={8} max={400} />
-                <ScrubInput label="Weight" value={selectedLayer.fontWeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, false)} step={5} min={100} max={950} decimals={0} />
+                <ScrubInput label="Size" value={selStyle ? selStyle.fontSize : selectedLayer.fontSize} mixedFallback={selectedLayer.fontSize} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ fontSize: clamp(v, 8, 400) }, { fontSize: clamp(v, 8, 400) }, false)} step={1} min={8} max={400} />
+                <ScrubInput label="Weight" value={selStyle ? selStyle.fontWeight : selectedLayer.fontWeight} mixedFallback={selectedLayer.fontWeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, { fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, false)} step={5} min={100} max={950} decimals={0} />
               </div>
               <div className="scrub-grid-2">
                 <ScrubInput label="Line" value={selectedLayer.lineHeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ lineHeight: clamp(v, 0.5, 3) }, false)} step={0.005} min={0.5} max={3} decimals={2} />
-                <ScrubInput label="Track" value={selectedLayer.letterSpacing} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ letterSpacing: clamp(v, -20, 50) }, false)} step={0.05} min={-20} max={50} decimals={1} />
+                <ScrubInput label="Track" value={selStyle ? selStyle.letterSpacing : selectedLayer.letterSpacing} mixedFallback={selectedLayer.letterSpacing} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ letterSpacing: clamp(v, -20, 50) }, { letterSpacing: clamp(v, -20, 50) }, false)} step={0.05} min={-20} max={50} decimals={1} />
               </div>
             </div>
 
@@ -1522,33 +1841,78 @@ export default function App() {
                   <div key={layer.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
                     {/* Hitbox or editor — rotated around its center */}
                     {editing ? (
-                      <textarea
-                        className="layer-editor"
-                        autoFocus
-                        value={layer.text}
-                        style={{
-                          left: bounds.x,
-                          top: bounds.y,
-                          width: bounds.width,
-                          minHeight: bounds.height,
-                          fontSize: layer.fontSize,
-                          fontWeight: layer.fontWeight,
-                          lineHeight: layer.lineHeight,
-                          letterSpacing: layer.letterSpacing,
-                          color: layer.color,
-                          opacity: layer.opacity ?? 1,
-                          textAlign: layer.align,
-                          fontFamily: `'${layer.fontFamily || 'Pretendard'}', 'Apple SD Gothic Neo', Helvetica, Arial, sans-serif`,
-                          transform: rotateCss,
-                          transformOrigin: 'center center',
-                          pointerEvents: 'all',
-                        }}
-                        onChange={(event) => updateLayer(layer.id, { text: event.target.value }, false)}
-                        onBlur={() => finishEditing(layer)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Escape') event.currentTarget.blur();
-                        }}
-                      />
+                      <>
+                        <div
+                          className="layer-editor-preview"
+                          aria-hidden="true"
+                          style={{
+                            left: bounds.x,
+                            top: bounds.y,
+                            width: bounds.width,
+                            minHeight: bounds.height,
+                            lineHeight: layer.lineHeight,
+                            color: layer.color,
+                            opacity: layer.opacity ?? 1,
+                            textAlign: layer.align,
+                            transform: rotateCss,
+                            transformOrigin: 'center center',
+                          }}
+                        >
+                          {richTextRuns(layer).map((run, index) => (
+                            <span
+                              key={`${index}-${run.text}`}
+                              style={{
+                                fontFamily: fontFamilyCss(run.style.fontFamily),
+                                fontSize: run.style.fontSize,
+                                fontWeight: run.style.fontWeight,
+                                letterSpacing: run.style.letterSpacing,
+                              }}
+                            >
+                              {run.text}
+                            </span>
+                          ))}
+                        </div>
+                        <textarea
+                          className="layer-editor"
+                          autoFocus
+                          value={layer.text}
+                          style={{
+                            left: bounds.x,
+                            top: bounds.y,
+                            width: bounds.width,
+                            minHeight: bounds.height,
+                            fontSize: layer.fontSize,
+                            fontWeight: layer.fontWeight,
+                            lineHeight: layer.lineHeight,
+                            letterSpacing: layer.letterSpacing,
+                            caretColor: layer.color,
+                            color: 'transparent',
+                            textAlign: layer.align,
+                            fontFamily: fontFamilyCss(layer.fontFamily || 'Pretendard'),
+                            transform: rotateCss,
+                            transformOrigin: 'center center',
+                            pointerEvents: 'all',
+                          }}
+                          onChange={(event) => {
+                            const newText = event.target.value;
+                            const updatedSpans = adjustSpansForTextChange(layer.text, newText, layer.fontSpans);
+                            updateLayer(layer.id, { text: newText, fontSpans: updatedSpans }, false);
+                          }}
+                          onSelect={(event) => {
+                            setEditingSel(textAreaSelectionToCharRange(event.currentTarget));
+                          }}
+                          onKeyUp={(event) => {
+                            setEditingSel(textAreaSelectionToCharRange(event.currentTarget));
+                          }}
+                          onMouseUp={(event) => {
+                            setEditingSel(textAreaSelectionToCharRange(event.currentTarget));
+                          }}
+                          onBlur={() => finishEditing(layer)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') event.currentTarget.blur();
+                          }}
+                        />
+                      </>
                     ) : (
                       <button
                         type="button"

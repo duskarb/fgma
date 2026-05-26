@@ -55,6 +55,11 @@ export function scaleLayersForSize(layers: TextLayer[], from: ArtboardSize, to: 
     width: layer.width * sx,
     fontSize: layer.fontSize * textScale,
     letterSpacing: layer.letterSpacing * textScale,
+    fontSpans: layer.fontSpans?.map((span) => ({
+      ...span,
+      fontSize: span.fontSize === undefined ? undefined : span.fontSize * textScale,
+      letterSpacing: span.letterSpacing === undefined ? undefined : span.letterSpacing * textScale,
+    })),
   }));
 }
 

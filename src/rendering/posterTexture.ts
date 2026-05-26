@@ -1,4 +1,4 @@
-import type { ArtboardSize, PosterTexture, TextLayer } from '../types';
+import type { ArtboardSize, FontSpan, PosterTexture, TextLayer } from '../types';
 import { fillMixed, fontString, measureMixed } from './multilingual';
 import {
   DEFAULT_MASS_STRIDE,
@@ -42,39 +42,50 @@ function splitForWidth(
   fontSize: number,
   letterSpacing: number,
   fontFamily?: string,
-) {
-  const lines: string[] = [];
+  fontSpans?: FontSpan[],
+): { line: string; start: number }[] {
+  const result: { line: string; start: number }[] = [];
   const sourceLines = text.split('\n');
+  let offset = 0;
 
   for (const sourceLine of sourceLines) {
     if (!sourceLine.trim()) {
-      lines.push('');
+      result.push({ line: '', start: offset });
+      offset += sourceLine.length + 1;
       continue;
     }
 
-    const words = sourceLine.includes(' ') ? sourceLine.split(' ') : [...sourceLine];
-    let current = '';
+    const hasSpaces = sourceLine.includes(' ');
+    const tokens = hasSpaces ? sourceLine.split(' ') : [...sourceLine];
+    let currentLine = '';
+    let currentLineStart = offset;
+    let tokenOffset = offset;
 
-    for (const word of words) {
-      const joiner = sourceLine.includes(' ') && current ? ' ' : '';
-      const next = `${current}${joiner}${word}`;
-      if (measureMixed(ctx, next, weight, fontSize, letterSpacing, fontFamily) <= maxWidth || !current) {
-        current = next;
+    for (let ti = 0; ti < tokens.length; ti++) {
+      const token = tokens[ti];
+      const joiner = hasSpaces && currentLine ? ' ' : '';
+      const candidate = `${currentLine}${joiner}${token}`;
+      if (measureMixed(ctx, candidate, weight, fontSize, letterSpacing, fontFamily, fontSpans, currentLineStart) <= maxWidth || !currentLine) {
+        currentLine = candidate;
       } else {
-        lines.push(current);
-        current = word;
+        result.push({ line: currentLine, start: currentLineStart });
+        currentLineStart = tokenOffset;
+        currentLine = token;
       }
+      tokenOffset += [...token].length;
+      if (hasSpaces && ti < tokens.length - 1) tokenOffset += 1;
     }
 
-    lines.push(current);
+    result.push({ line: currentLine, start: currentLineStart });
+    offset += [...sourceLine].length + 1;
   }
 
-  return lines;
+  return result;
 }
 
 
 function layerHeight(layer: TextLayer, ctx: CanvasRenderingContext2D) {
-  const lines = splitForWidth(ctx, layer.text, layer.width, layer.fontWeight, layer.fontSize, layer.letterSpacing, layer.fontFamily);
+  const lines = splitForWidth(ctx, layer.text, layer.width, layer.fontWeight, layer.fontSize, layer.letterSpacing, layer.fontFamily, layer.fontSpans);
   return Math.max(layer.fontSize, lines.length * layer.fontSize * layer.lineHeight);
 }
 
@@ -91,8 +102,8 @@ export function estimateLayerBounds(layer: TextLayer) {
 function drawTextLayer(ctx: CanvasRenderingContext2D, layer: TextLayer) {
   ctx.save();
 
-  const { fontWeight: weight, fontSize, letterSpacing, lineHeight, fontFamily } = layer;
-  const lines = splitForWidth(ctx, layer.text, layer.width, weight, fontSize, letterSpacing, fontFamily);
+  const { fontWeight: weight, fontSize, letterSpacing, lineHeight, fontFamily, fontSpans } = layer;
+  const lines = splitForWidth(ctx, layer.text, layer.width, weight, fontSize, letterSpacing, fontFamily, fontSpans);
   const height = Math.max(fontSize, lines.length * fontSize * lineHeight);
 
   const rotation = layer.rotation ?? 0;
@@ -110,12 +121,12 @@ function drawTextLayer(ctx: CanvasRenderingContext2D, layer: TextLayer) {
   ctx.font = fontString(weight, fontSize, false, fontFamily);
 
   const lineAdvance = fontSize * lineHeight;
-  lines.forEach((line, index) => {
+  lines.forEach(({ line, start: charOffset }, index) => {
     let x = layer.x;
-    const lineWidth = measureMixed(ctx, line, weight, fontSize, letterSpacing, fontFamily);
+    const lineWidth = measureMixed(ctx, line, weight, fontSize, letterSpacing, fontFamily, fontSpans, charOffset);
     if (layer.align === 'center') x += (layer.width - lineWidth) / 2;
     if (layer.align === 'right') x += layer.width - lineWidth;
-    fillMixed(ctx, line, x, layer.y + index * lineAdvance, weight, fontSize, letterSpacing, fontFamily);
+    fillMixed(ctx, line, x, layer.y + index * lineAdvance, weight, fontSize, letterSpacing, fontFamily, fontSpans, charOffset);
   });
 
   ctx.restore();
