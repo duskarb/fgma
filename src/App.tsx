@@ -786,6 +786,18 @@ export default function App() {
         return;
       }
       if (editingId) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        const selectableIds = layers.filter((layer) => !layer.locked).map((layer) => layer.id);
+        setSelectedIds(selectableIds);
+        setSelectedId(selectableIds[selectableIds.length - 1] ?? '');
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        duplicateSelected();
+        return;
+      }
       if (e.code === 'Space') {
         e.preventDefault();
         setSpaceHeld(true);
@@ -793,12 +805,22 @@ export default function App() {
       }
       if (e.key === '[') {
         e.preventDefault();
-        moveLayer(-1);
+        if (e.metaKey || e.ctrlKey) moveLayer(-1);
+        else moveLayerToEnd(-1);
         return;
       }
       if (e.key === ']') {
         e.preventDefault();
-        moveLayer(1);
+        if (e.metaKey || e.ctrlKey) moveLayer(1);
+        else moveLayerToEnd(1);
+        return;
+      }
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        nudgeSelected(dx, dy);
         return;
       }
       if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -819,7 +841,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [editingId, selectedId, layers]);
+  }, [editingId, selectedId, selectedIds, layers]);
 
   useEffect(() => {
     const handleCopy = (event: ClipboardEvent) => {
@@ -1155,31 +1177,77 @@ export default function App() {
   }
 
   function duplicateSelected() {
-    if (!selectedLayer || selectedLayer.locked) return;
+    const targets = layers.filter((layer) => selectedIds.includes(layer.id) && !layer.locked);
+    if (targets.length === 0) return;
     pushUndoSnapshot();
-    const copy = { ...selectedLayer, id: uid(), locked: false, x: selectedLayer.x + 24, y: selectedLayer.y + 24 };
-    setLayers((current) => [...current, copy]);
-    selectOne(copy.id);
+    const idMap = new Map<string, string>();
+    const copies = targets.map((layer) => {
+      const nextId = uid();
+      idMap.set(layer.id, nextId);
+      return { ...layer, id: nextId, locked: false, x: layer.x + 24, y: layer.y + 24 };
+    });
+    setLayers((current) => [...current, ...copies]);
+    const newIds = copies.map((layer) => layer.id);
+    setSelectedIds(newIds);
+    setSelectedId(idMap.get(selectedId) ?? newIds[newIds.length - 1] ?? '');
   }
 
   function deleteSelected() {
-    if (!selectedLayer || selectedLayer.locked) return;
+    const removableIds = new Set(layers.filter((layer) => selectedIds.includes(layer.id) && !layer.locked).map((layer) => layer.id));
+    if (removableIds.size === 0) return;
     pushUndoSnapshot();
-    const next = layers.filter((layer) => layer.id !== selectedLayer.id);
+    const next = layers.filter((layer) => !removableIds.has(layer.id));
     setLayers(next);
     selectOne(next[0]?.id ?? '');
   }
 
   function moveLayer(direction: -1 | 1) {
-    if (!selectedLayer || selectedLayer.locked) return;
-    const index = layers.findIndex((layer) => layer.id === selectedLayer.id);
-    const nextIndex = Math.min(layers.length - 1, Math.max(0, index + direction));
-    if (index === nextIndex) return;
+    const movableIds = new Set(layers.filter((layer) => selectedIds.includes(layer.id) && !layer.locked).map((layer) => layer.id));
+    if (movableIds.size === 0) return;
+    const canMove = direction > 0
+      ? layers.some((layer, index) => movableIds.has(layer.id) && index < layers.length - 1 && !movableIds.has(layers[index + 1].id))
+      : layers.some((layer, index) => movableIds.has(layer.id) && index > 0 && !movableIds.has(layers[index - 1].id));
+    if (!canMove) return;
     pushUndoSnapshot();
     const next = [...layers];
-    const [item] = next.splice(index, 1);
-    next.splice(nextIndex, 0, item);
+    if (direction > 0) {
+      for (let index = next.length - 2; index >= 0; index -= 1) {
+        if (!movableIds.has(next[index].id) || movableIds.has(next[index + 1].id)) continue;
+        [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      }
+    } else {
+      for (let index = 1; index < next.length; index += 1) {
+        if (!movableIds.has(next[index].id) || movableIds.has(next[index - 1].id)) continue;
+        [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      }
+    }
     setLayers(next);
+  }
+
+  function moveLayerToEnd(direction: -1 | 1) {
+    const movableIds = new Set(layers.filter((layer) => selectedIds.includes(layer.id) && !layer.locked).map((layer) => layer.id));
+    if (movableIds.size === 0) return;
+    const selectedLayers = layers.filter((layer) => movableIds.has(layer.id));
+    const remainingLayers = layers.filter((layer) => !movableIds.has(layer.id));
+    const next = direction > 0
+      ? [...remainingLayers, ...selectedLayers]
+      : [...selectedLayers, ...remainingLayers];
+    if (next.every((layer, index) => layer.id === layers[index].id)) return;
+    pushUndoSnapshot();
+    setLayers(next);
+  }
+
+  function nudgeSelected(dx: number, dy: number) {
+    const movableIds = new Set(layers.filter((layer) => selectedIds.includes(layer.id) && !layer.locked).map((layer) => layer.id));
+    if (movableIds.size === 0) return;
+    pushUndoSnapshot();
+    setLayers((current) =>
+      current.map((layer) =>
+        movableIds.has(layer.id)
+          ? { ...layer, x: Math.round(layer.x + dx), y: Math.round(layer.y + dy) }
+          : layer,
+      ),
+    );
   }
 
   function alignSelected(axis: 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom') {
@@ -1376,7 +1444,7 @@ export default function App() {
       if (src) origins[id] = { x: src.x, y: src.y };
     }
 
-    // For alt+shift: axis is locked after first threshold movement
+    // Axis is locked after the first threshold movement while Shift is held.
     let lockedAxis: 'x' | 'y' | null = null;
 
     const onMove = (moveEvent: PointerEvent) => {
@@ -1387,13 +1455,14 @@ export default function App() {
       let dx = px - start.x;
       let dy = py - start.y;
 
-      // Axis lock: alt+shift constrains to the dominant axis
-      if (event.altKey && moveEvent.shiftKey) {
+      if (moveEvent.shiftKey) {
         if (!lockedAxis && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
           lockedAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
         }
         if (lockedAxis === 'x') dy = 0;
         if (lockedAxis === 'y') dx = 0;
+      } else {
+        lockedAxis = null;
       }
 
       setLayers((current) => {
@@ -1508,6 +1577,10 @@ export default function App() {
       activeSel?.end ?? [...selectedLayer.text].length,
     )
     : null;
+  const hasUnlockedSelection = selectedIds.some((id) => {
+    const layer = layers.find((item) => item.id === id);
+    return layer && !layer.locked;
+  });
 
   return (
     <main className="app-shell">
@@ -1570,7 +1643,7 @@ export default function App() {
             <span>{layers.length}</span>
           </div>
           <div className="layer-list">
-            {layers.map((layer) => (
+            {[...layers].reverse().map((layer) => (
               <div
                 key={layer.id}
                 className={`layer-row ${selectedIds.includes(layer.id) ? 'is-active' : ''}`}
@@ -1596,12 +1669,12 @@ export default function App() {
             ))}
           </div>
           <div className="icon-row icon-row--2">
-            <IconButton label="Duplicate" onClick={duplicateSelected} disabled={!selectedLayer || selectedLayer.locked}><Copy size={15} /></IconButton>
-            <IconButton label="Delete" onClick={deleteSelected} disabled={!selectedLayer || selectedLayer.locked}><Trash2 size={15} /></IconButton>
+            <IconButton label="Duplicate" onClick={duplicateSelected} disabled={!hasUnlockedSelection}><Copy size={15} /></IconButton>
+            <IconButton label="Delete" onClick={deleteSelected} disabled={!hasUnlockedSelection}><Trash2 size={15} /></IconButton>
           </div>
           <div className="button-grid">
-            <button type="button" onClick={() => moveLayer(-1)} disabled={!selectedLayer || selectedLayer.locked}>Back</button>
-            <button type="button" onClick={() => moveLayer(1)} disabled={!selectedLayer || selectedLayer.locked}>Front</button>
+            <button type="button" onClick={() => moveLayer(-1)} disabled={!hasUnlockedSelection}>Back</button>
+            <button type="button" onClick={() => moveLayer(1)} disabled={!hasUnlockedSelection}>Front</button>
           </div>
           <div className="align-tools">
             <IconButton label="Align layer left" onClick={() => alignSelected('left')} disabled={selectedIds.length === 0}><AlignStartVertical size={14} /></IconButton>
