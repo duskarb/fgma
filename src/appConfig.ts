@@ -77,7 +77,7 @@ export const FONTS: { id: string; label: string; korean: boolean }[] = [
 export const initialLayers: TextLayer[] = [
   {
     id: 'default-text',
-    text: '말에 힘(중력)이 있다고..\n\nf(g)=ma\n피그마 아님.\n\n말조심🐎🐴🙊',
+    text: '말에 힘(중력)이 있다고..\n\nf(g)=ma\n피그마 아님.\n\n말조심🐎🐴🙊\n\nmade by @duskarb',
     x: 80,
     y: 120,
     width: 800,
