@@ -2,10 +2,14 @@ import { useCallback, useMemo, useState } from 'react';
 import type { TextLayer } from '../types';
 import { initialLayers } from '../appConfig';
 
-export function useTextLayers() {
-  const [layers, setLayers] = useState<TextLayer[]>(initialLayers);
-  const [selectedId, setSelectedId] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+export function useTextLayers(savedState?: {
+  layers?: TextLayer[];
+  selectedId?: string;
+  selectedIds?: string[];
+}) {
+  const [layers, setLayers] = useState<TextLayer[]>(savedState?.layers?.length ? savedState.layers : initialLayers);
+  const [selectedId, setSelectedId] = useState(savedState?.selectedId ?? '');
+  const [selectedIds, setSelectedIds] = useState<string[]>(savedState?.selectedIds ?? []);
 
   const selectedLayer = useMemo(
     () => layers.find((layer) => layer.id === selectedId) ?? null,

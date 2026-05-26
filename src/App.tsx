@@ -41,6 +41,7 @@ import {
 import { useExport } from './hooks/useExport';
 import { useRenderSettings } from './hooks/useRenderSettings';
 import { useTextLayers } from './hooks/useTextLayers';
+import { readAutosave, useAutosave } from './hooks/useAutosave';
 
 type HistoryFeedback = 'Undo' | 'Redo' | null;
 
@@ -299,6 +300,7 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 export default function App() {
+  const savedSnapshot = useMemo(() => readAutosave(), []);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -317,15 +319,15 @@ export default function App() {
     selectedLayer,
     selectOne,
     toggleSelect,
-  } = useTextLayers();
+  } = useTextLayers(savedSnapshot ?? undefined);
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null);
-  const [bgColor, setBgColor] = useState('#ffffff');
-  const [artboardPreset, setArtboardPreset] = useState<ArtboardPresetId>('a4');
-  const [orientation, setOrientation] = useState<Orientation>('portrait');
+  const [bgColor, setBgColor] = useState(savedSnapshot?.bgColor ?? '#ffffff');
+  const [artboardPreset, setArtboardPreset] = useState<ArtboardPresetId>(savedSnapshot?.artboardPreset ?? 'a4');
+  const [orientation, setOrientation] = useState<Orientation>(savedSnapshot?.orientation ?? 'portrait');
   const [viewZoom, setViewZoom] = useState<ViewZoom>('fit');
   const [viewPan, setViewPan] = useState<PanPoint>({ x: 0, y: 0 });
   const [fitZoom, setFitZoom] = useState(1);
-  const { settings, setSettings, patchSettings } = useRenderSettings(pushUndoSnapshot);
+  const { settings, setSettings, patchSettings } = useRenderSettings(pushUndoSnapshot, savedSnapshot?.settings);
   const [status, setStatus] = useState('LIVE');
   const [webglAvailable, setWebglAvailable] = useState(true);
   const [previewWarp, setPreviewWarp] = useState(false);
@@ -346,13 +348,13 @@ export default function App() {
   const textClipboardRef = useRef<TextClipboardPayload | null>(null);
   const pasteOffsetRef = useRef(1);
   const editorSnapshotRef = useRef<EditorSnapshot>({
-    layers: initialLayers,
-    selectedId: '',
-    selectedIds: [],
-    bgColor: '#ffffff',
-    artboardPreset: 'a4',
-    orientation: 'portrait',
-    settings: initialSettings,
+    layers: savedSnapshot?.layers ?? initialLayers,
+    selectedId: savedSnapshot?.selectedId ?? '',
+    selectedIds: savedSnapshot?.selectedIds ?? [],
+    bgColor: savedSnapshot?.bgColor ?? '#ffffff',
+    artboardPreset: savedSnapshot?.artboardPreset ?? 'a4',
+    orientation: savedSnapshot?.orientation ?? 'portrait',
+    settings: savedSnapshot?.settings ?? initialSettings,
   });
   const artboardSize = useMemo(
     () => resolveArtboardSize(artboardPreset, orientation),
@@ -386,6 +388,7 @@ export default function App() {
   editingIdRef.current = editingId;
   draggingRef.current = draggingId !== null;
   editorSnapshotRef.current = { layers, selectedId, selectedIds, bgColor, artboardPreset, orientation, settings };
+  useAutosave({ layers, selectedId, selectedIds, bgColor, artboardPreset, orientation, settings });
 
   const boundsById = useMemo(() => {
     return Object.fromEntries(layers.map((layer) => [layer.id, estimateLayerBounds(layer)]));
