@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlignHorizontalJustifyCenter,
-  AlignHorizontalJustifyEnd,
-  AlignHorizontalJustifyStart,
   AlignCenter,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
   AlignLeft,
   AlignRight,
+  AlignStartHorizontal,
+  AlignStartVertical,
   Copy,
   Download,
   Film,
@@ -871,19 +874,51 @@ export default function App() {
     setLayers(next);
   }
 
-  function alignSelected(axis: 'left' | 'center' | 'right') {
+  function alignSelected(axis: 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom') {
     const targets = layers.filter((l) => selectedIds.includes(l.id) && !l.locked);
     if (targets.length === 0) return;
     pushUndoSnapshot();
-    setLayers((current) =>
-      current.map((layer) => {
-        if (!selectedIds.includes(layer.id) || layer.locked) return layer;
-        if (axis === 'left') return { ...layer, x: 0 };
-        if (axis === 'right') return { ...layer, x: Math.round(artboardSize.width - layer.width) };
-        // center
-        return { ...layer, x: Math.round((artboardSize.width - layer.width) / 2) };
-      }),
-    );
+
+    if (targets.length === 1) {
+      // Single layer: align to artboard
+      setLayers((current) =>
+        current.map((layer) => {
+          if (!selectedIds.includes(layer.id) || layer.locked) return layer;
+          const bounds = boundsById[layer.id] ?? estimateLayerBounds(layer);
+          if (axis === 'left') return { ...layer, x: 0 };
+          if (axis === 'right') return { ...layer, x: Math.round(artboardSize.width - layer.width) };
+          if (axis === 'center-x') return { ...layer, x: Math.round((artboardSize.width - layer.width) / 2) };
+          if (axis === 'top') return { ...layer, y: 0 };
+          if (axis === 'bottom') return { ...layer, y: Math.round(artboardSize.height - bounds.height) };
+          return { ...layer, y: Math.round((artboardSize.height - bounds.height) / 2) };
+        }),
+      );
+    } else {
+      // Multiple layers: align to each other (bounding box of selection)
+      const targetBounds = targets.map((l) => {
+        const b = boundsById[l.id] ?? estimateLayerBounds(l);
+        return { id: l.id, x: l.x, y: l.y, width: l.width, height: b.height };
+      });
+      const groupLeft = Math.min(...targetBounds.map((b) => b.x));
+      const groupRight = Math.max(...targetBounds.map((b) => b.x + b.width));
+      const groupTop = Math.min(...targetBounds.map((b) => b.y));
+      const groupBottom = Math.max(...targetBounds.map((b) => b.y + b.height));
+      const groupCenterX = (groupLeft + groupRight) / 2;
+      const groupCenterY = (groupTop + groupBottom) / 2;
+
+      setLayers((current) =>
+        current.map((layer) => {
+          if (!selectedIds.includes(layer.id) || layer.locked) return layer;
+          const bounds = boundsById[layer.id] ?? estimateLayerBounds(layer);
+          if (axis === 'left') return { ...layer, x: Math.round(groupLeft) };
+          if (axis === 'right') return { ...layer, x: Math.round(groupRight - layer.width) };
+          if (axis === 'center-x') return { ...layer, x: Math.round(groupCenterX - layer.width / 2) };
+          if (axis === 'top') return { ...layer, y: Math.round(groupTop) };
+          if (axis === 'bottom') return { ...layer, y: Math.round(groupBottom - bounds.height) };
+          return { ...layer, y: Math.round(groupCenterY - bounds.height / 2) };
+        }),
+      );
+    }
   }
 
   function getStageScale() {
@@ -1252,9 +1287,12 @@ export default function App() {
             <button type="button" onClick={() => moveLayer(1)} disabled={!selectedLayer || selectedLayer.locked}>Front</button>
           </div>
           <div className="align-tools">
-            <IconButton label="Align to left" onClick={() => alignSelected('left')} disabled={selectedIds.length === 0}><AlignHorizontalJustifyStart size={14} /></IconButton>
-            <IconButton label="Align horizontal center" onClick={() => alignSelected('center')} disabled={selectedIds.length === 0}><AlignHorizontalJustifyCenter size={14} /></IconButton>
-            <IconButton label="Align to right" onClick={() => alignSelected('right')} disabled={selectedIds.length === 0}><AlignHorizontalJustifyEnd size={14} /></IconButton>
+            <IconButton label="Align layer left" onClick={() => alignSelected('left')} disabled={selectedIds.length === 0}><AlignStartVertical size={14} /></IconButton>
+            <IconButton label="Align layer center" onClick={() => alignSelected('center-x')} disabled={selectedIds.length === 0}><AlignCenterVertical size={14} /></IconButton>
+            <IconButton label="Align layer right" onClick={() => alignSelected('right')} disabled={selectedIds.length === 0}><AlignEndVertical size={14} /></IconButton>
+            <IconButton label="Align layer top" onClick={() => alignSelected('top')} disabled={selectedIds.length === 0}><AlignStartHorizontal size={14} /></IconButton>
+            <IconButton label="Align layer middle" onClick={() => alignSelected('center-y')} disabled={selectedIds.length === 0}><AlignCenterHorizontal size={14} /></IconButton>
+            <IconButton label="Align layer bottom" onClick={() => alignSelected('bottom')} disabled={selectedIds.length === 0}><AlignEndHorizontal size={14} /></IconButton>
           </div>
         </section>
 
