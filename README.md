@@ -8,11 +8,11 @@
 
 ### 기본 화면
 
-![기본 화면](assets/basic-screen.png)
+<img src="assets/basic-screen.png" alt="기본 화면" width="70%">
 
 ### 효과 적용 화면
 
-![효과 적용 화면](assets/effect-screen.png)
+<img src="assets/effect-screen.png" alt="효과 적용 화면" width="70%">
 
 ### 움직이는 포스터 예시
 
