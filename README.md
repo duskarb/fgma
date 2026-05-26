@@ -18,13 +18,9 @@
 
 ![포스터 예시](assets/example-poster.png)
 
-### 움직이는 포스터 예시 (MP4)
+### 움직이는 포스터 예시
 
 ![움직이는 포스터 예시](assets/example-motion.gif)
-
-### 움직이는 포스터 예시 (MOV)
-
-![움직이는 포스터 예시](assets/example-motion-mov.gif)
 
 ## 무엇을 할 수 있나요?
 
