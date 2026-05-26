@@ -1,5 +1,12 @@
 import type { ArtboardSize, PosterTexture, RenderSettings } from '../types';
-import { MAX_MASSES, POSTER_HEIGHT, POSTER_WIDTH } from './posterTexture';
+import {
+  MASS_COMPONENTS_PER_POINT,
+  MAX_SHADER_MASSES,
+  MIN_SHADER_MASSES,
+  POSTER_HEIGHT,
+  POSTER_WIDTH,
+  RESERVED_FRAGMENT_UNIFORM_VECTORS,
+} from './massConfig';
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -138,7 +145,8 @@ function createProgram(gl: GL, maxMasses: number) {
 
 function maxMassesFor(gl: GL) {
   const uniformVectors = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) as number;
-  return Math.max(32, Math.min(MAX_MASSES, uniformVectors - 32));
+  const availableVectors = uniformVectors - RESERVED_FRAGMENT_UNIFORM_VECTORS;
+  return Math.max(MIN_SHADER_MASSES, Math.min(MAX_SHADER_MASSES, availableVectors));
 }
 
 export class WebglPosterRenderer {
@@ -169,7 +177,7 @@ export class WebglPosterRenderer {
 
     this.gl = gl as GL;
     this.maxMasses = maxMassesFor(this.gl);
-    this.masses = new Float32Array(this.maxMasses * 3);
+    this.masses = new Float32Array(this.maxMasses * MASS_COMPONENTS_PER_POINT);
     this.program = createProgram(this.gl, this.maxMasses);
     this.texture = this.gl.createTexture()!;
     this.locations = {

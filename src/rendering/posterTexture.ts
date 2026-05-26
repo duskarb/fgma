@@ -1,9 +1,15 @@
 import type { ArtboardSize, PosterTexture, TextLayer } from '../types';
 import { fillMixed, fontString, measureMixed } from './multilingual';
+import {
+  DEFAULT_MASS_STRIDE,
+  MASS_COMPONENTS_PER_POINT,
+  MASS_DENSITY_THRESHOLD,
+  MAX_SHADER_MASSES,
+  POSTER_HEIGHT,
+  POSTER_WIDTH,
+} from './massConfig';
 
-export const POSTER_WIDTH = 595;
-export const POSTER_HEIGHT = 842;
-export const MAX_MASSES = 1024;
+export { POSTER_HEIGHT, POSTER_WIDTH } from './massConfig';
 
 const textureCanvas = document.createElement('canvas');
 const maskCanvas = document.createElement('canvas');
@@ -123,7 +129,7 @@ type MassCell = {
   mass: number;
 };
 
-function collectMasses(layers: TextLayer[], size: ArtboardSize, stride: number, maxMasses = MAX_MASSES) {
+function collectMasses(layers: TextLayer[], size: ArtboardSize, stride: number, maxMasses = MAX_SHADER_MASSES) {
   const cellMass = new Map<string, MassCell>();
   const safeStride = Math.max(1, Math.round(stride));
   resizeCanvas(maskCanvas, size);
@@ -133,6 +139,8 @@ function collectMasses(layers: TextLayer[], size: ArtboardSize, stride: number, 
     maskCtx.clearRect(0, 0, size.width, size.height);
     drawTextLayer(maskCtx, { ...layer, color: '#ffffff' });
 
+    // The alpha mask is the bridge between typography and physics:
+    // opaque sampled cells become mass candidates for the shader field.
     const image = maskCtx.getImageData(0, 0, size.width, size.height).data;
     for (let y = 0; y < size.height; y += safeStride) {
       for (let x = 0; x < size.width; x += safeStride) {
@@ -149,7 +157,7 @@ function collectMasses(layers: TextLayer[], size: ArtboardSize, stride: number, 
         }
 
         const density = alpha / pixels;
-        if (density < 0.02) continue;
+        if (density < MASS_DENSITY_THRESHOLD) continue;
 
         const gx = Math.round(x / safeStride);
         const gy = Math.round(y / safeStride);
@@ -167,11 +175,14 @@ function collectMasses(layers: TextLayer[], size: ArtboardSize, stride: number, 
   }
 
   const candidates = [...cellMass.values()].sort((a, b) => (a.gy - b.gy) || (a.gx - b.gx));
-  const capacity = Math.max(16, Math.min(MAX_MASSES, Math.floor(maxMasses)));
-  const masses = new Float32Array(capacity * 3);
+  const capacity = Math.max(16, Math.min(MAX_SHADER_MASSES, Math.floor(maxMasses)));
+  const masses = new Float32Array(capacity * MASS_COMPONENTS_PER_POINT);
   const totalMass = candidates.reduce((sum, item) => sum + item.mass, 0);
   if (!candidates.length) return { masses, count: 0, totalMass: 0 };
 
+  // WebGL1 uniforms need a compile-time array limit. When text produces more
+  // cells than the shader can accept, nearby cells are folded into coarser
+  // cells instead of abruptly dropping the tail of the candidate list.
   const coarsen = Math.max(1, Math.ceil(Math.sqrt(candidates.length / capacity)));
   const fixedGrid = new Map<string, MassCell>();
 
@@ -208,14 +219,12 @@ function collectMasses(layers: TextLayer[], size: ArtboardSize, stride: number, 
   return { masses, count, totalMass };
 }
 
-const FIXED_MASS_STRIDE = 8;
-
 export async function createPosterTexture(
   layers: TextLayer[],
   bgColor: string,
   size: ArtboardSize = { width: POSTER_WIDTH, height: POSTER_HEIGHT },
-  maxMasses = MAX_MASSES,
-  massStride = FIXED_MASS_STRIDE,
+  maxMasses = MAX_SHADER_MASSES,
+  massStride = DEFAULT_MASS_STRIDE,
 ): Promise<PosterTexture> {
   await document.fonts.ready;
 

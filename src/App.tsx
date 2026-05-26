@@ -21,69 +21,28 @@ import {
   Sparkles,
   Type,
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import type { ArtboardSize, RenderSettings, TextLayer } from './types';
 import { createPosterTexture, estimateLayerBounds } from './rendering/posterTexture';
 import { WebglPosterRenderer } from './rendering/webglPosterRenderer';
+import {
+  ARTBOARD_PRESETS,
+  FONTS,
+  getArtboardPreset,
+  initialLayers,
+  initialSettings,
+  resolveArtboardSize,
+  resolvePreviewRenderSize,
+  scaleLayersForSize,
+  type ArtboardPresetId,
+  type Orientation,
+  type PanPoint,
+  type ViewZoom,
+} from './appConfig';
+import { useExport } from './hooks/useExport';
+import { useRenderSettings } from './hooks/useRenderSettings';
+import { useTextLayers } from './hooks/useTextLayers';
 
-type ArtboardPresetId = 'a4' | 'a3' | '4x5' | '1x1' | 'hd';
-type Orientation = 'portrait' | 'landscape';
-type ViewZoom = 'fit' | number;
-type PanPoint = { x: number; y: number };
 type HistoryFeedback = 'Undo' | 'Redo' | null;
-
-const ARTBOARD_PRESETS: { id: ArtboardPresetId; label: string; width: number; height: number; defaultOrientation: Orientation }[] = [
-  { id: 'a4', label: 'A4', width: 1240, height: 1754, defaultOrientation: 'portrait' },
-  { id: 'a3', label: 'A3', width: 1754, height: 2480, defaultOrientation: 'portrait' },
-  { id: '4x5', label: '4:5', width: 1080, height: 1350, defaultOrientation: 'portrait' },
-  { id: '1x1', label: '1:1', width: 1080, height: 1080, defaultOrientation: 'portrait' },
-  { id: 'hd', label: '1920x1080', width: 1920, height: 1080, defaultOrientation: 'landscape' },
-];
-
-function getArtboardPreset(presetId: ArtboardPresetId) {
-  return ARTBOARD_PRESETS.find((item) => item.id === presetId) ?? ARTBOARD_PRESETS[0];
-}
-
-function resolveArtboardSize(presetId: ArtboardPresetId, orientation: Orientation): ArtboardSize {
-  const preset = getArtboardPreset(presetId);
-  if (preset.width === preset.height) return { width: preset.width, height: preset.height };
-
-  const short = Math.min(preset.width, preset.height);
-  const long = Math.max(preset.width, preset.height);
-  return orientation === 'portrait'
-    ? { width: short, height: long }
-    : { width: long, height: short };
-}
-
-const PREVIEW_MAX_PIXELS = 900_000;
-
-function resolvePreviewRenderSize(size: ArtboardSize): ArtboardSize {
-  const pixels = size.width * size.height;
-  if (pixels <= PREVIEW_MAX_PIXELS) return size;
-
-  const scale = Math.sqrt(PREVIEW_MAX_PIXELS / pixels);
-  return {
-    width: Math.max(1, Math.round(size.width * scale)),
-    height: Math.max(1, Math.round(size.height * scale)),
-  };
-}
-
-function scaleLayersForSize(layers: TextLayer[], from: ArtboardSize, to: ArtboardSize) {
-  if (from.width === to.width && from.height === to.height) return layers;
-
-  const sx = to.width / from.width;
-  const sy = to.height / from.height;
-  const textScale = Math.min(sx, sy);
-
-  return layers.map((layer) => ({
-    ...layer,
-    x: layer.x * sx,
-    y: layer.y * sy,
-    width: layer.width * sx,
-    fontSize: layer.fontSize * textScale,
-    letterSpacing: layer.letterSpacing * textScale,
-  }));
-}
 
 function zoomLabel(zoom: ViewZoom, resolvedZoom: number) {
   return zoom === 'fit' ? 'Fit' : `${Math.round(resolvedZoom * 100)}%`;
@@ -96,52 +55,6 @@ function getWidthResizeCursor(rotation = 0) {
   if (normalized < 112.5) return 'ns-resize';
   return 'nwse-resize';
 }
-
-export const FONTS: { id: string; label: string; korean: boolean }[] = [
-  { id: 'Pretendard',     label: 'Pretendard',     korean: true  },
-  { id: 'Gmarket Sans',   label: 'Gmarket Sans',   korean: true  },
-  { id: 'Black Han Sans', label: 'Black Han Sans', korean: true  },
-  { id: 'Noto Serif KR',  label: 'Noto Serif KR',  korean: true  },
-  { id: 'IBM Plex Sans KR', label: 'IBM Plex Sans KR', korean: true },
-  { id: 'Maru Buri',      label: 'Maru Buri',      korean: true  },
-  { id: 'Inter',          label: 'Inter',          korean: false },
-  { id: 'IBM Plex Sans',  label: 'IBM Plex Sans',  korean: false },
-  { id: 'Space Grotesk',  label: 'Space Grotesk',  korean: false },
-  { id: 'Archivo',        label: 'Archivo',        korean: false },
-  { id: 'Space Mono',     label: 'Space Mono',     korean: false },
-  { id: 'Bebas Neue',     label: 'Bebas Neue',     korean: false },
-  { id: 'Cormorant Garamond', label: 'Cormorant Garamond', korean: false },
-];
-
-const initialLayers: TextLayer[] = [
-  {
-    id: 'default-text',
-    text: '말에 힘(중력)이 있다고..\n\nf(g)=ma\n피그마 아님.\n\n말조심🐎🐴🙊',
-    x: 80,
-    y: 120,
-    width: 800,
-    fontSize: 72,
-    fontWeight: 800,
-    lineHeight: 1.15,
-    letterSpacing: -0.02,
-    color: '#111111',
-    opacity: 1,
-    align: 'left',
-    fontFamily: 'Pretendard',
-  }
-];
-
-const initialSettings: RenderSettings = {
-  strength: 520,
-  decay: 1.42,
-  epsilon: 42,
-  pointSpacing: 6,
-  pointSize: 4,
-  showField: true,
-  showMasses: false,
-  animate: true,
-  motionAmount: 0.28,
-};
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -157,15 +70,6 @@ function normalizeWheelDelta(deltaY: number, deltaMode: number) {
   if (deltaMode === 1) return deltaY * 16;
   if (deltaMode === 2) return deltaY * window.innerHeight;
   return deltaY;
-}
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
 
 function shortLayerName(layer: TextLayer) {
@@ -403,9 +307,17 @@ export default function App() {
   const previewWarpRef = useRef(true);
   const editingIdRef = useRef<string | null>(null);
   const draggingRef = useRef(false);
-  const [layers, setLayers] = useState(initialLayers);
-  const [selectedId, setSelectedId] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const {
+    layers,
+    setLayers,
+    selectedId,
+    setSelectedId,
+    selectedIds,
+    setSelectedIds,
+    selectedLayer,
+    selectOne,
+    toggleSelect,
+  } = useTextLayers();
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null);
   const [bgColor, setBgColor] = useState('#ffffff');
   const [artboardPreset, setArtboardPreset] = useState<ArtboardPresetId>('a4');
@@ -413,7 +325,7 @@ export default function App() {
   const [viewZoom, setViewZoom] = useState<ViewZoom>('fit');
   const [viewPan, setViewPan] = useState<PanPoint>({ x: 0, y: 0 });
   const [fitZoom, setFitZoom] = useState(1);
-  const [settings, setSettings] = useState(initialSettings);
+  const { settings, setSettings, patchSettings } = useRenderSettings(pushUndoSnapshot);
   const [status, setStatus] = useState('LIVE');
   const [webglAvailable, setWebglAvailable] = useState(true);
   const [previewWarp, setPreviewWarp] = useState(false);
@@ -442,7 +354,6 @@ export default function App() {
     orientation: 'portrait',
     settings: initialSettings,
   });
-  const selectedLayer = layers.find((layer) => layer.id === selectedId) ?? null;
   const artboardSize = useMemo(
     () => resolveArtboardSize(artboardPreset, orientation),
     [artboardPreset, orientation],
@@ -453,6 +364,22 @@ export default function App() {
   );
   const resolvedViewZoom = viewZoom === 'fit' ? fitZoom : viewZoom;
   const stageDisplayWidth = Math.max(80, Math.round(artboardSize.width * resolvedViewZoom));
+  const { exportPng, exportPdf, exportWebm, exportMp4, exportGif } = useExport({
+    canvasRef,
+    rendererRef,
+    exportingRef,
+    layers,
+    bgColor,
+    artboardSize,
+    artboardPreset,
+    previewRenderSize,
+    previewWarp,
+    settingsRef,
+    recording,
+    setRecording,
+    setStatus,
+    setEditingId,
+  });
 
   settingsRef.current = settings;
   previewWarpRef.current = previewWarp;
@@ -762,19 +689,6 @@ export default function App() {
     setNeedsRender(true);
   }
 
-  function selectOne(id: string) {
-    setSelectedId(id);
-    setSelectedIds(id ? [id] : []);
-  }
-
-  function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      setSelectedId(next.length > 0 ? next[next.length - 1] : '');
-      return next;
-    });
-  }
-
   function undo() {
     const snapshot = undoStackRef.current.pop();
     if (!snapshot) return;
@@ -840,11 +754,6 @@ export default function App() {
     hasRenderedRef.current = true;
     setNeedsRender(false);
     setPreviewWarp(true);
-  }
-
-  function patchSettings(patch: Partial<RenderSettings>, recordHistory = true) {
-    if (recordHistory) pushUndoSnapshot();
-    setSettings((current) => ({ ...current, ...patch }));
   }
 
   function patchSelected(patch: Partial<TextLayer>, recordHistory = true) {
@@ -1243,344 +1152,6 @@ export default function App() {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-  }
-
-  async function renderTargetAtSize(targetSize: ArtboardSize, renderSettings = settingsRef.current, time = performance.now() / 1000) {
-    const targetLayers = scaleLayersForSize(layers, artboardSize, targetSize);
-    const maxMasses = rendererRef.current?.getMaxMasses();
-    const texture = await createPosterTexture(targetLayers, bgColor, targetSize, maxMasses, renderSettings.pointSpacing);
-
-    if (rendererRef.current) {
-      rendererRef.current.setSize(targetSize);
-      rendererRef.current.updateTexture(texture);
-      rendererRef.current.render(renderSettings, time);
-    } else if (canvasRef.current) {
-      const canvas = canvasRef.current;
-      canvas.width = targetSize.width;
-      canvas.height = targetSize.height;
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(texture.canvas, 0, 0);
-    }
-  }
-
-  async function restorePreviewRenderTarget() {
-    await renderTargetAtSize(previewRenderSize);
-  }
-
-  function createFrameReader(canvas: HTMLCanvasElement) {
-    const width = canvas.width;
-    const height = canvas.height;
-
-    if (typeof OffscreenCanvas !== 'undefined') {
-      const frameCanvas = new OffscreenCanvas(width, height);
-      const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
-      if (frameCtx) {
-        return () => {
-          frameCtx.drawImage(canvas, 0, 0, width, height);
-          return frameCtx.getImageData(0, 0, width, height).data.buffer;
-        };
-      }
-    }
-
-    const frameCanvas = document.createElement('canvas');
-    frameCanvas.width = width;
-    frameCanvas.height = height;
-    const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true })!;
-    return () => {
-      frameCtx.drawImage(canvas, 0, 0, width, height);
-      return frameCtx.getImageData(0, 0, width, height).data.buffer;
-    };
-  }
-
-  function waitForWorkerReady(worker: Worker) {
-    return new Promise<void>((resolve, reject) => {
-      const onMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'ready') {
-          cleanup();
-          resolve();
-        } else if (event.data?.type === 'error') {
-          cleanup();
-          reject(new Error(event.data.message));
-        }
-      };
-      const onError = (event: ErrorEvent) => {
-        cleanup();
-        reject(event.error ?? new Error(event.message));
-      };
-      const cleanup = () => {
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
-      };
-      worker.addEventListener('message', onMessage);
-      worker.addEventListener('error', onError);
-    });
-  }
-
-  function waitForWorkerDone(worker: Worker) {
-    return new Promise<ArrayBuffer>((resolve, reject) => {
-      const onMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'done') {
-          cleanup();
-          resolve(event.data.buffer);
-        } else if (event.data?.type === 'error') {
-          cleanup();
-          reject(new Error(event.data.message));
-        } else if (event.data?.type === 'progress') {
-          const percent = Math.round(event.data.progress * 100);
-          setStatus(`ENCODING ${percent}%`);
-        }
-      };
-      const onError = (event: ErrorEvent) => {
-        cleanup();
-        reject(event.error ?? new Error(event.message));
-      };
-      const cleanup = () => {
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
-      };
-      worker.addEventListener('message', onMessage);
-      worker.addEventListener('error', onError);
-    });
-  }
-
-  async function encodeGifWithWorker(canvas: HTMLCanvasElement) {
-    const worker = new Worker(new URL('./workers/gifEncoder.worker.ts', import.meta.url), { type: 'module' });
-    try {
-      const fps = 20;
-      const frameCount = Math.ceil(fps * 3.2);
-      const delay = Math.round(1000 / fps);
-      const readFrame = createFrameReader(canvas);
-
-      worker.postMessage({ type: 'init', width: canvas.width, height: canvas.height, delay, frameCount });
-      await waitForWorkerReady(worker);
-      const done = waitForWorkerDone(worker);
-
-      for (let i = 0; i < frameCount; i++) {
-        rendererRef.current?.render(settingsRef.current, i / fps);
-        const rgba = readFrame();
-        worker.postMessage({ type: 'frame', rgba }, [rgba]);
-        if (i % 4 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0));
-      }
-
-      worker.postMessage({ type: 'finish' });
-      return await done;
-    } finally {
-      worker.terminate();
-    }
-  }
-
-  async function chooseMp4Codec(width: number, height: number, fps: number, bitrate: number) {
-    type ContainerCodec = 'avc' | 'vp9';
-    const candidates: { codec: string; container: ContainerCodec }[] = [
-      { codec: 'avc1.640028', container: 'avc' },
-      { codec: 'avc1.4d0028', container: 'avc' },
-      { codec: 'avc1.42E01E', container: 'avc' },
-      { codec: 'avc1.42001E', container: 'avc' },
-      { codec: 'vp09.00.10.08', container: 'vp9' },
-      { codec: 'vp09.00.41.08', container: 'vp9' },
-    ];
-
-    for (const candidate of candidates) {
-      try {
-        const { supported } = await VideoEncoder.isConfigSupported({
-          codec: candidate.codec,
-          width,
-          height,
-          bitrate,
-          framerate: fps,
-        });
-        if (supported) return candidate;
-      } catch {
-        // Try the next codec candidate.
-      }
-    }
-
-    return null;
-  }
-
-  async function encodeMp4WithWorker(canvas: HTMLCanvasElement) {
-    if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
-      throw new Error('WebCodecs not supported. Use WEBM instead.');
-    }
-
-    const fps = 30;
-    const frameCount = fps * 5;
-    const bitrate = 12_000_000;
-    const chosen = await chooseMp4Codec(canvas.width, canvas.height, fps, bitrate);
-    if (!chosen) throw new Error('No supported video codec. Use WEBM instead.');
-
-    const worker = new Worker(new URL('./workers/mp4Encoder.worker.ts', import.meta.url), { type: 'module' });
-    try {
-      worker.postMessage({
-        type: 'init',
-        codec: chosen.codec,
-        container: chosen.container,
-        width: canvas.width,
-        height: canvas.height,
-        bitrate,
-        fps,
-        frameCount,
-      });
-      await waitForWorkerReady(worker);
-      const done = waitForWorkerDone(worker);
-
-      for (let i = 0; i < frameCount; i++) {
-        rendererRef.current?.render(settingsRef.current, i / fps);
-        const frame = new VideoFrame(canvas, { timestamp: Math.round(i * 1_000_000 / fps) });
-        worker.postMessage({ type: 'frame', frame, keyFrame: i % fps === 0 }, [frame]);
-        if (i % 4 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0));
-      }
-
-      worker.postMessage({ type: 'finish' });
-      return await done;
-    } finally {
-      worker.terminate();
-    }
-  }
-
-  async function exportPng() {
-    setEditingId(null);
-    const exportSettings = previewWarp ? settingsRef.current : { ...settingsRef.current, strength: 0, motionAmount: 0 };
-    exportingRef.current = true;
-    try {
-      await renderTargetAtSize(artboardSize, exportSettings);
-      const blob = rendererRef.current
-        ? await rendererRef.current.toBlob('image/png')
-        : await new Promise<Blob>((resolve, reject) => {
-            canvasRef.current?.toBlob((nextBlob) => {
-              if (nextBlob) resolve(nextBlob);
-              else reject(new Error('Could not export canvas.'));
-            }, 'image/png');
-          });
-      downloadBlob(blob, 'poster-webgl.png');
-    } finally {
-      await restorePreviewRenderTarget();
-      exportingRef.current = false;
-    }
-  }
-
-  async function exportPdf() {
-    setEditingId(null);
-    const exportSettings = previewWarp ? settingsRef.current : { ...settingsRef.current, strength: 0, motionAmount: 0 };
-    exportingRef.current = true;
-    try {
-      await renderTargetAtSize(artboardSize, exportSettings);
-      const blob = rendererRef.current
-        ? await rendererRef.current.toBlob('image/jpeg', 0.95)
-        : await new Promise<Blob>((resolve, reject) => {
-            canvasRef.current?.toBlob((b) => {
-              if (b) resolve(b);
-              else reject(new Error('Could not export canvas.'));
-            }, 'image/jpeg', 0.95);
-          });
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      const isLandscape = artboardSize.width > artboardSize.height;
-      const preset = ARTBOARD_PRESETS.find((p) => p.id === artboardPreset);
-      const pageFormat = (preset?.id === 'a4' || preset?.id === 'a3')
-        ? (preset.id.toUpperCase() as 'A4' | 'A3')
-        : ([artboardSize.width * 0.264583, artboardSize.height * 0.264583] as [number, number]);
-      const pdf = new jsPDF({ orientation: isLandscape ? 'landscape' : 'portrait', unit: 'mm', format: pageFormat });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      pdf.addImage(dataUrl, 'JPEG', 0, 0, pageW, pageH);
-      pdf.save('poster.pdf');
-    } finally {
-      await restorePreviewRenderTarget();
-      exportingRef.current = false;
-    }
-  }
-
-  async function exportWebm() {
-    const canvas = canvasRef.current;
-    if (!canvas || recording) return;
-    setEditingId(null);
-    await renderTargetAtSize(artboardSize);
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
-    setRecording(true);
-    setStatus('RECORDING');
-    const stream = canvas.captureStream(30);
-    const recorder = new MediaRecorder(stream, { mimeType });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-    recorder.onstop = () => {
-      downloadBlob(new Blob(chunks, { type: 'video/webm' }), 'poster-motion.webm');
-      restorePreviewRenderTarget().finally(() => {
-        setRecording(false);
-        setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
-      });
-    };
-    recorder.start();
-    window.setTimeout(() => recorder.stop(), 3200);
-  }
-
-  async function exportMp4() {
-    const canvas = canvasRef.current;
-    if (!canvas || recording) return;
-    setEditingId(null);
-    await renderTargetAtSize(artboardSize);
-    setRecording(true);
-    setStatus('RECORDING');
-
-    // Safari: MediaRecorder supports video/mp4 natively
-    const mp4Mime = ['video/mp4;codecs=avc1', 'video/mp4;codecs=h264', 'video/mp4']
-      .find(t => MediaRecorder.isTypeSupported(t));
-    if (mp4Mime) {
-      const stream = canvas.captureStream(30);
-      const recorder = new MediaRecorder(stream, { mimeType: mp4Mime });
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-      recorder.onstop = () => {
-        downloadBlob(new Blob(chunks, { type: 'video/mp4' }), 'poster-motion.mp4');
-        restorePreviewRenderTarget().finally(() => {
-          setRecording(false);
-          setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
-        });
-      };
-      recorder.start();
-      window.setTimeout(() => recorder.stop(), 5000);
-      return;
-    }
-
-    // Chrome/Firefox: render frames on the main canvas, encode/mux off the UI thread.
-    exportingRef.current = true;
-    try {
-      const buffer = await encodeMp4WithWorker(canvas);
-      downloadBlob(new Blob([buffer], { type: 'video/mp4' }), 'poster-motion.mp4');
-    } catch (err) {
-      console.error('MP4 export failed:', err);
-      alert(`MP4 export failed: ${err}`);
-    } finally {
-      await restorePreviewRenderTarget();
-      exportingRef.current = false;
-      setRecording(false);
-      setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
-    }
-  }
-
-  async function exportGif() {
-    const canvas = canvasRef.current;
-    if (!canvas || recording) return;
-    setEditingId(null);
-    setRecording(true);
-    setStatus('RECORDING');
-    exportingRef.current = true;
-    try {
-      await renderTargetAtSize(artboardSize);
-      const buffer = await encodeGifWithWorker(canvas);
-      downloadBlob(new Blob([buffer], { type: 'image/gif' }), 'poster-motion.gif');
-    } catch (err) {
-      console.error('GIF export failed:', err);
-    } finally {
-      await restorePreviewRenderTarget();
-      exportingRef.current = false;
-      setRecording(false);
-      setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
-    }
   }
 
   return (
