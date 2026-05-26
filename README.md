@@ -14,13 +14,9 @@
 
 ![효과 적용 화면](assets/effect-screen.png)
 
-### 결과 예시
-
-![포스터 예시](assets/example-poster.png)
-
 ### 움직이는 포스터 예시
 
-![움직이는 포스터 예시](assets/example-motion.gif)
+<img src="assets/example-motion.gif" alt="움직이는 포스터 예시" width="50%">
 
 ## 무엇을 할 수 있나요?
 
