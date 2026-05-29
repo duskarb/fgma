@@ -1,16 +1,21 @@
-import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react';
-import { jsPDF } from 'jspdf';
-import type { ArtboardSize, RenderSettings, TextLayer } from '../types';
-import type { ArtboardPresetId } from '../appConfig';
-import { ARTBOARD_PRESETS, scaleLayersForSize } from '../appConfig';
-import { createPosterTexture } from '../rendering/posterTexture';
-import type { WebglPosterRenderer } from '../rendering/webglPosterRenderer';
-import type { SonificationEngine } from '../audio/SonificationEngine';
-import type { SoundSettings } from '../audio/audioTypes';
-import type { MotionAudioInput } from '../shared/motionFeatures';
-import { buildAudioLayerInfo } from '../shared/audioLayerInfo';
-import { renderOfflineAudio } from '../audio/renderOfflineAudio';
-import { encodeAudioTrack } from '../export/encodeAudioTrack';
+import type {
+  Dispatch,
+  MutableRefObject,
+  RefObject,
+  SetStateAction,
+} from "react";
+import { jsPDF } from "jspdf";
+import type { ArtboardSize, RenderSettings, TextLayer } from "../types";
+import type { ArtboardPresetId } from "../appConfig";
+import { ARTBOARD_PRESETS, scaleLayersForSize } from "../appConfig";
+import { createPosterTexture } from "../rendering/posterTexture";
+import type { WebglPosterRenderer } from "../rendering/webglPosterRenderer";
+import type { SonificationEngine } from "../audio/SonificationEngine";
+import type { SoundSettings } from "../audio/audioTypes";
+import type { MotionAudioInput } from "../shared/motionFeatures";
+import { buildAudioLayerInfo } from "../shared/audioLayerInfo";
+import { renderOfflineAudio } from "../audio/renderOfflineAudio";
+import { encodeAudioTrack } from "../export/encodeAudioTrack";
 
 type UseExportOptions = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -30,12 +35,16 @@ type UseExportOptions = {
   sonificationEngineRef: MutableRefObject<SonificationEngine | null>;
   soundSettings: SoundSettings;
   includeSoundInMp4: boolean;
-  textureRef: MutableRefObject<{ masses: Float32Array; massCount: number; totalMass: number } | null>;
+  textureRef: MutableRefObject<{
+    masses: Float32Array;
+    massCount: number;
+    totalMass: number;
+  } | null>;
 };
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
+  const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
   anchor.click();
@@ -62,10 +71,20 @@ export function useExport({
   includeSoundInMp4,
   textureRef,
 }: UseExportOptions) {
-  async function renderTargetAtSize(targetSize: ArtboardSize, renderSettings = settingsRef.current, time = performance.now() / 1000) {
+  async function renderTargetAtSize(
+    targetSize: ArtboardSize,
+    renderSettings = settingsRef.current,
+    time = performance.now() / 1000,
+  ) {
     const targetLayers = scaleLayersForSize(layers, artboardSize, targetSize);
     const maxMasses = rendererRef.current?.getMaxMasses();
-    const texture = await createPosterTexture(targetLayers, bgColor, targetSize, maxMasses, renderSettings.pointSpacing);
+    const texture = await createPosterTexture(
+      targetLayers,
+      bgColor,
+      targetSize,
+      maxMasses,
+      renderSettings.pointSpacing,
+    );
 
     if (rendererRef.current) {
       rendererRef.current.setSize(targetSize);
@@ -75,7 +94,7 @@ export function useExport({
       const canvas = canvasRef.current;
       canvas.width = targetSize.width;
       canvas.height = targetSize.height;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       ctx?.drawImage(texture.canvas, 0, 0);
     }
   }
@@ -88,9 +107,11 @@ export function useExport({
     const width = canvas.width;
     const height = canvas.height;
 
-    if (typeof OffscreenCanvas !== 'undefined') {
+    if (typeof OffscreenCanvas !== "undefined") {
       const frameCanvas = new OffscreenCanvas(width, height);
-      const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+      const frameCtx = frameCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
       if (frameCtx) {
         return () => {
           frameCtx.drawImage(canvas, 0, 0, width, height);
@@ -99,10 +120,12 @@ export function useExport({
       }
     }
 
-    const frameCanvas = document.createElement('canvas');
+    const frameCanvas = document.createElement("canvas");
     frameCanvas.width = width;
     frameCanvas.height = height;
-    const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true })!;
+    const frameCtx = frameCanvas.getContext("2d", {
+      willReadFrequently: true,
+    })!;
     return () => {
       frameCtx.drawImage(canvas, 0, 0, width, height);
       return frameCtx.getImageData(0, 0, width, height).data.buffer;
@@ -112,10 +135,10 @@ export function useExport({
   function waitForWorkerReady(worker: Worker) {
     return new Promise<void>((resolve, reject) => {
       const onMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'ready') {
+        if (event.data?.type === "ready") {
           cleanup();
           resolve();
-        } else if (event.data?.type === 'error') {
+        } else if (event.data?.type === "error") {
           cleanup();
           reject(new Error(event.data.message));
         }
@@ -125,24 +148,24 @@ export function useExport({
         reject(event.error ?? new Error(event.message));
       };
       const cleanup = () => {
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
       };
-      worker.addEventListener('message', onMessage);
-      worker.addEventListener('error', onError);
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
     });
   }
 
   function waitForWorkerDone(worker: Worker) {
     return new Promise<ArrayBuffer>((resolve, reject) => {
       const onMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'done') {
+        if (event.data?.type === "done") {
           cleanup();
           resolve(event.data.buffer);
-        } else if (event.data?.type === 'error') {
+        } else if (event.data?.type === "error") {
           cleanup();
           reject(new Error(event.data.message));
-        } else if (event.data?.type === 'progress') {
+        } else if (event.data?.type === "progress") {
           const percent = Math.round(event.data.progress * 100);
           setStatus(`ENCODING ${percent}%`);
         }
@@ -152,49 +175,64 @@ export function useExport({
         reject(event.error ?? new Error(event.message));
       };
       const cleanup = () => {
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
       };
-      worker.addEventListener('message', onMessage);
-      worker.addEventListener('error', onError);
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
     });
   }
 
   async function encodeGifWithWorker(canvas: HTMLCanvasElement) {
-    const worker = new Worker(new URL('../workers/gifEncoder.worker.ts', import.meta.url), { type: 'module' });
+    const worker = new Worker(
+      new URL("../workers/gifEncoder.worker.ts", import.meta.url),
+      { type: "module" },
+    );
     try {
       const fps = 20;
       const frameCount = Math.ceil(fps * 3.2);
       const delay = Math.round(1000 / fps);
       const readFrame = createFrameReader(canvas);
 
-      worker.postMessage({ type: 'init', width: canvas.width, height: canvas.height, delay, frameCount });
+      worker.postMessage({
+        type: "init",
+        width: canvas.width,
+        height: canvas.height,
+        delay,
+        frameCount,
+      });
       await waitForWorkerReady(worker);
       const done = waitForWorkerDone(worker);
 
       for (let i = 0; i < frameCount; i++) {
         rendererRef.current?.render(settingsRef.current, i / fps);
         const rgba = readFrame();
-        worker.postMessage({ type: 'frame', rgba }, [rgba]);
-        if (i % 4 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0));
+        worker.postMessage({ type: "frame", rgba }, [rgba]);
+        if (i % 4 === 0)
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
       }
 
-      worker.postMessage({ type: 'finish' });
+      worker.postMessage({ type: "finish" });
       return await done;
     } finally {
       worker.terminate();
     }
   }
 
-  async function chooseMp4Codec(width: number, height: number, fps: number, bitrate: number) {
-    type ContainerCodec = 'avc' | 'vp9';
+  async function chooseMp4Codec(
+    width: number,
+    height: number,
+    fps: number,
+    bitrate: number,
+  ) {
+    type ContainerCodec = "avc" | "vp9";
     const candidates: { codec: string; container: ContainerCodec }[] = [
-      { codec: 'avc1.640028', container: 'avc' },
-      { codec: 'avc1.4d0028', container: 'avc' },
-      { codec: 'avc1.42E01E', container: 'avc' },
-      { codec: 'avc1.42001E', container: 'avc' },
-      { codec: 'vp09.00.10.08', container: 'vp9' },
-      { codec: 'vp09.00.41.08', container: 'vp9' },
+      { codec: "avc1.640028", container: "avc" },
+      { codec: "avc1.4d0028", container: "avc" },
+      { codec: "avc1.42E01E", container: "avc" },
+      { codec: "avc1.42001E", container: "avc" },
+      { codec: "vp09.00.10.08", container: "vp9" },
+      { codec: "vp09.00.41.08", container: "vp9" },
     ];
 
     for (const candidate of candidates) {
@@ -215,34 +253,51 @@ export function useExport({
     return null;
   }
 
-  async function encodeMp4WithWorker(canvas: HTMLCanvasElement, audioBuffer?: AudioBuffer) {
-    if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
-      throw new Error('WebCodecs not supported. Use WEBM instead.');
+  async function encodeMp4WithWorker(
+    canvas: HTMLCanvasElement,
+    audioBuffer?: AudioBuffer,
+  ) {
+    if (
+      typeof VideoEncoder === "undefined" ||
+      typeof VideoFrame === "undefined"
+    ) {
+      throw new Error("WebCodecs not supported. Use WEBM instead.");
     }
 
     const fps = 30;
     const frameCount = fps * 5;
     const bitrate = 12_000_000;
-    const chosen = await chooseMp4Codec(canvas.width, canvas.height, fps, bitrate);
-    if (!chosen) throw new Error('No supported video codec. Use WEBM instead.');
+    const chosen = await chooseMp4Codec(
+      canvas.width,
+      canvas.height,
+      fps,
+      bitrate,
+    );
+    if (!chosen) throw new Error("No supported video codec. Use WEBM instead.");
 
     // Check audio encoding support
     let audioOpts: { sampleRate: number; channels: number } | undefined;
-    if (audioBuffer && typeof AudioEncoder !== 'undefined') {
+    if (audioBuffer && typeof AudioEncoder !== "undefined") {
       const sup = await AudioEncoder.isConfigSupported({
-        codec: 'mp4a.40.2',
+        codec: "mp4a.40.2",
         sampleRate: audioBuffer.sampleRate,
         numberOfChannels: audioBuffer.numberOfChannels,
       });
       if (sup.supported) {
-        audioOpts = { sampleRate: audioBuffer.sampleRate, channels: audioBuffer.numberOfChannels };
+        audioOpts = {
+          sampleRate: audioBuffer.sampleRate,
+          channels: audioBuffer.numberOfChannels,
+        };
       }
     }
 
-    const worker = new Worker(new URL('../workers/mp4Encoder.worker.ts', import.meta.url), { type: 'module' });
+    const worker = new Worker(
+      new URL("../workers/mp4Encoder.worker.ts", import.meta.url),
+      { type: "module" },
+    );
     try {
       worker.postMessage({
-        type: 'init',
+        type: "init",
         codec: chosen.codec,
         container: chosen.container,
         width: canvas.width,
@@ -270,47 +325,60 @@ export function useExport({
                 codec: metadata.decoderConfig.codec,
                 sampleRate: metadata.decoderConfig.sampleRate,
                 numberOfChannels: metadata.decoderConfig.numberOfChannels,
-              }
+              },
             };
             if (metadata.decoderConfig.description) {
               const desc = metadata.decoderConfig.description;
               let descBuffer: ArrayBuffer;
               if (ArrayBuffer.isView(desc)) {
-                descBuffer = desc.buffer.slice(desc.byteOffset, desc.byteOffset + desc.byteLength);
+                descBuffer = new Uint8Array(
+                  desc.buffer as ArrayBuffer,
+                  desc.byteOffset,
+                  desc.byteLength,
+                ).buffer;
               } else {
-                descBuffer = desc.slice(0);
+                descBuffer = new Uint8Array(desc as ArrayBuffer).buffer;
               }
-              serializedMeta.decoderConfig.description = new Uint8Array(descBuffer);
+              serializedMeta.decoderConfig.description = new Uint8Array(
+                descBuffer,
+              );
               transferables.push(descBuffer);
             }
           }
 
-          worker.postMessage({
-            type: 'audio',
-            chunk: {
-              type: chunk.type,
-              timestamp: chunk.timestamp,
-              duration: chunk.duration || 0,
-              data: chunkData
+          worker.postMessage(
+            {
+              type: "audio",
+              chunk: {
+                type: chunk.type,
+                timestamp: chunk.timestamp,
+                duration: chunk.duration || 0,
+                data: chunkData,
+              },
+              meta: serializedMeta,
             },
-            meta: serializedMeta
-          }, transferables);
+            transferables,
+          );
         });
       }
 
       for (let i = 0; i < frameCount; i++) {
         rendererRef.current?.render(settingsRef.current, i / fps);
         const bitmap = await createImageBitmap(canvas);
-        worker.postMessage({
-          type: 'frame',
-          bitmap,
-          timestamp: Math.round(i * 1_000_000 / fps),
-          keyFrame: i % fps === 0
-        }, [bitmap]);
-        if (i % 4 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0));
+        worker.postMessage(
+          {
+            type: "frame",
+            bitmap,
+            timestamp: Math.round((i * 1_000_000) / fps),
+            keyFrame: i % fps === 0,
+          },
+          [bitmap],
+        );
+        if (i % 4 === 0)
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
       }
 
-      worker.postMessage({ type: 'finish' });
+      worker.postMessage({ type: "finish" });
       return await done;
     } finally {
       worker.terminate();
@@ -319,19 +387,21 @@ export function useExport({
 
   async function exportPng() {
     setEditingId(null);
-    const exportSettings = previewWarp ? settingsRef.current : { ...settingsRef.current, strength: 0, motionAmount: 0 };
+    const exportSettings = previewWarp
+      ? settingsRef.current
+      : { ...settingsRef.current, strength: 0, motionAmount: 0 };
     exportingRef.current = true;
     try {
       await renderTargetAtSize(artboardSize, exportSettings);
       const blob = rendererRef.current
-        ? await rendererRef.current.toBlob('image/png')
+        ? await rendererRef.current.toBlob("image/png")
         : await new Promise<Blob>((resolve, reject) => {
             canvasRef.current?.toBlob((nextBlob) => {
               if (nextBlob) resolve(nextBlob);
-              else reject(new Error('Could not export canvas.'));
-            }, 'image/png');
+              else reject(new Error("Could not export canvas."));
+            }, "image/png");
           });
-      downloadBlob(blob, 'poster-webgl.png');
+      downloadBlob(blob, "poster-webgl.png");
     } finally {
       await restorePreviewRenderTarget();
       exportingRef.current = false;
@@ -340,17 +410,23 @@ export function useExport({
 
   async function exportPdf() {
     setEditingId(null);
-    const exportSettings = previewWarp ? settingsRef.current : { ...settingsRef.current, strength: 0, motionAmount: 0 };
+    const exportSettings = previewWarp
+      ? settingsRef.current
+      : { ...settingsRef.current, strength: 0, motionAmount: 0 };
     exportingRef.current = true;
     try {
       await renderTargetAtSize(artboardSize, exportSettings);
       const blob = rendererRef.current
-        ? await rendererRef.current.toBlob('image/jpeg', 0.95)
+        ? await rendererRef.current.toBlob("image/jpeg", 0.95)
         : await new Promise<Blob>((resolve, reject) => {
-            canvasRef.current?.toBlob((b) => {
-              if (b) resolve(b);
-              else reject(new Error('Could not export canvas.'));
-            }, 'image/jpeg', 0.95);
+            canvasRef.current?.toBlob(
+              (b) => {
+                if (b) resolve(b);
+                else reject(new Error("Could not export canvas."));
+              },
+              "image/jpeg",
+              0.95,
+            );
           });
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -360,14 +436,22 @@ export function useExport({
       });
       const isLandscape = artboardSize.width > artboardSize.height;
       const preset = ARTBOARD_PRESETS.find((p) => p.id === artboardPreset);
-      const pageFormat = (preset?.id === 'a4' || preset?.id === 'a3')
-        ? (preset.id.toUpperCase() as 'A4' | 'A3')
-        : ([artboardSize.width * 0.264583, artboardSize.height * 0.264583] as [number, number]);
-      const pdf = new jsPDF({ orientation: isLandscape ? 'landscape' : 'portrait', unit: 'mm', format: pageFormat });
+      const pageFormat =
+        preset?.id === "a4" || preset?.id === "a3"
+          ? (preset.id.toUpperCase() as "A4" | "A3")
+          : ([
+              artboardSize.width * 0.264583,
+              artboardSize.height * 0.264583,
+            ] as [number, number]);
+      const pdf = new jsPDF({
+        orientation: isLandscape ? "landscape" : "portrait",
+        unit: "mm",
+        format: pageFormat,
+      });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      pdf.addImage(dataUrl, 'JPEG', 0, 0, pageW, pageH);
-      pdf.save('poster.pdf');
+      pdf.addImage(dataUrl, "JPEG", 0, 0, pageW, pageH);
+      pdf.save("poster.pdf");
     } finally {
       await restorePreviewRenderTarget();
       exportingRef.current = false;
@@ -379,18 +463,25 @@ export function useExport({
     if (!canvas || recording) return;
     setEditingId(null);
     await renderTargetAtSize(artboardSize);
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+      ? "video/webm;codecs=vp9"
+      : "video/webm";
     setRecording(true);
-    setStatus('RECORDING');
+    setStatus("RECORDING");
     const stream = canvas.captureStream(30);
     const recorder = new MediaRecorder(stream, { mimeType });
     const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
     recorder.onstop = () => {
-      downloadBlob(new Blob(chunks, { type: 'video/webm' }), 'poster-motion.webm');
+      downloadBlob(
+        new Blob(chunks, { type: "video/webm" }),
+        "poster-motion.webm",
+      );
       restorePreviewRenderTarget().finally(() => {
         setRecording(false);
-        setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
+        setStatus(rendererRef.current ? "LIVE" : "FLAT");
       });
     };
     recorder.start();
@@ -403,10 +494,11 @@ export function useExport({
     setEditingId(null);
     await renderTargetAtSize(artboardSize);
     setRecording(true);
-    setStatus('RECORDING');
+    setStatus("RECORDING");
 
     const withAudio = includeSoundInMp4;
-    const hasWebCodecs = typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
+    const hasWebCodecs =
+      typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined";
 
     // Path A: WebCodecs (Chrome / Edge / Safari with WebCodecs) - Frame-by-frame perfect rendering
     if (hasWebCodecs) {
@@ -429,32 +521,41 @@ export function useExport({
               fps: 30,
               seed: soundSettings.seed,
               bgColorHex: bgColor,
-              textColorHex: layers[0]?.color || '#111111',
-              fontFamily: layers[0]?.fontFamily || 'Pretendard',
+              textColorHex: layers[0]?.color || "#111111",
+              fontFamily: layers[0]?.fontFamily || "Pretendard",
               layersInfo: buildAudioLayerInfo(layers, artboardSize),
             };
-            setStatus('AUDIO…');
+            setStatus("AUDIO…");
             audioBuffer = await renderOfflineAudio(input, soundSettings);
           }
         }
 
-        const buffer = await encodeMp4WithWorker(canvas, audioBuffer ?? undefined);
-        downloadBlob(new Blob([buffer], { type: 'video/mp4' }), 'poster-motion.mp4');
+        const buffer = await encodeMp4WithWorker(
+          canvas,
+          audioBuffer ?? undefined,
+        );
+        downloadBlob(
+          new Blob([buffer], { type: "video/mp4" }),
+          "poster-motion.mp4",
+        );
       } catch (err) {
-        console.error('MP4 export failed:', err);
+        console.error("MP4 export failed:", err);
         alert(`MP4 export failed: ${err}`);
       } finally {
         await restorePreviewRenderTarget();
         exportingRef.current = false;
         setRecording(false);
-        setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
+        setStatus(rendererRef.current ? "LIVE" : "FLAT");
       }
       return;
     }
 
     // Path B: MediaRecorder fallback (Firefox, etc.)
-    const mp4Mime = ['video/mp4;codecs=avc1', 'video/mp4;codecs=h264', 'video/mp4']
-      .find((type) => MediaRecorder.isTypeSupported(type));
+    const mp4Mime = [
+      "video/mp4;codecs=avc1",
+      "video/mp4;codecs=h264",
+      "video/mp4",
+    ].find((type) => MediaRecorder.isTypeSupported(type));
     if (mp4Mime) {
       const videoStream = canvas.captureStream(30);
       let mediaStream = videoStream;
@@ -465,19 +566,27 @@ export function useExport({
           if (!engine.isRunning) engine.start();
           const audioTrack = engine.getCaptureStream().getAudioTracks()[0];
           if (audioTrack) {
-            mediaStream = new MediaStream([...videoStream.getVideoTracks(), audioTrack]);
+            mediaStream = new MediaStream([
+              ...videoStream.getVideoTracks(),
+              audioTrack,
+            ]);
           }
         }
       }
 
       const recorder = new MediaRecorder(mediaStream, { mimeType: mp4Mime });
       const chunks: Blob[] = [];
-      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
       recorder.onstop = () => {
-        downloadBlob(new Blob(chunks, { type: 'video/mp4' }), 'poster-motion.mp4');
+        downloadBlob(
+          new Blob(chunks, { type: "video/mp4" }),
+          "poster-motion.mp4",
+        );
         restorePreviewRenderTarget().finally(() => {
           setRecording(false);
-          setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
+          setStatus(rendererRef.current ? "LIVE" : "FLAT");
         });
       };
       recorder.start();
@@ -485,9 +594,11 @@ export function useExport({
       return;
     }
 
-    alert('MP4 export not supported in this browser. Please try Chrome/Edge or export as WEBM.');
+    alert(
+      "MP4 export not supported in this browser. Please try Chrome/Edge or export as WEBM.",
+    );
     setRecording(false);
-    setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
+    setStatus(rendererRef.current ? "LIVE" : "FLAT");
   }
 
   async function exportGif() {
@@ -495,19 +606,22 @@ export function useExport({
     if (!canvas || recording) return;
     setEditingId(null);
     setRecording(true);
-    setStatus('RECORDING');
+    setStatus("RECORDING");
     exportingRef.current = true;
     try {
       await renderTargetAtSize(artboardSize);
       const buffer = await encodeGifWithWorker(canvas);
-      downloadBlob(new Blob([buffer], { type: 'image/gif' }), 'poster-motion.gif');
+      downloadBlob(
+        new Blob([buffer], { type: "image/gif" }),
+        "poster-motion.gif",
+      );
     } catch (err) {
-      console.error('GIF export failed:', err);
+      console.error("GIF export failed:", err);
     } finally {
       await restorePreviewRenderTarget();
       exportingRef.current = false;
       setRecording(false);
-      setStatus(rendererRef.current ? 'LIVE' : 'FLAT');
+      setStatus(rendererRef.current ? "LIVE" : "FLAT");
     }
   }
 
