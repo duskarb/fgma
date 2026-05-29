@@ -1970,12 +1970,13 @@ export default function App() {
           />
 
           <div className="check-row" style={{ marginTop: '10px' }}>
-            <label style={{ cursor: hasRendered ? 'pointer' : 'not-allowed', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <label style={{ cursor: hasRendered ? 'pointer' : 'not-allowed', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <input
                 type="checkbox"
                 checked={includeSoundInMp4}
                 disabled={!hasRendered}
                 onChange={(e) => setIncludeSoundInMp4(e.target.checked)}
+                style={{ width: '16px', height: '16px', cursor: hasRendered ? 'pointer' : 'not-allowed' }}
               />
               Include sound in MP4 export
             </label>
