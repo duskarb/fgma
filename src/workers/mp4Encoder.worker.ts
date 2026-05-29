@@ -18,19 +18,32 @@ type InitMessage = {
   bitrate: number;
   fps: number;
   frameCount: number;
+  audio?: { sampleRate: number; channels: number };
 };
 
 type FrameMessage = {
   type: 'frame';
-  frame: VideoFrame;
+  bitmap: ImageBitmap;
+  timestamp: number;
   keyFrame: boolean;
+};
+
+type AudioMessage = {
+  type: 'audio';
+  chunk: {
+    type: 'key' | 'delta';
+    timestamp: number;
+    duration: number;
+    data: Uint8Array;
+  };
+  meta?: any;
 };
 
 type FinishMessage = {
   type: 'finish';
 };
 
-type WorkerMessage = InitMessage | FrameMessage | FinishMessage;
+type WorkerMessage = InitMessage | FrameMessage | AudioMessage | FinishMessage;
 
 let target: ArrayBufferTarget | null = null;
 let muxer: Muxer<ArrayBufferTarget> | null = null;
@@ -49,7 +62,8 @@ workerScope.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       }
 
       target = new ArrayBufferTarget();
-      muxer = new Muxer({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const muxerOpts: any = {
         target,
         video: {
           codec: message.container,
@@ -57,7 +71,18 @@ workerScope.onmessage = async (event: MessageEvent<WorkerMessage>) => {
           height: message.height,
         },
         fastStart: 'in-memory',
-      });
+        firstTimestampBehavior: 'offset',
+      };
+
+      if (message.audio) {
+        muxerOpts.audio = {
+          codec: 'aac',
+          sampleRate: message.audio.sampleRate,
+          numberOfChannels: message.audio.channels,
+        };
+      }
+
+      muxer = new Muxer(muxerOpts);
       frameCount = message.frameCount;
       encodedFrames = 0;
       encodeError = null;
@@ -90,8 +115,21 @@ workerScope.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       if (!encoder) throw new Error('MP4 worker was not initialized.');
       if (encodeError) throw encodeError;
 
-      encoder.encode(message.frame, { keyFrame: message.keyFrame });
-      message.frame.close();
+      const frame = new VideoFrame(message.bitmap, { timestamp: message.timestamp });
+      encoder.encode(frame, { keyFrame: message.keyFrame });
+      frame.close();
+      message.bitmap.close();
+      return;
+    }
+
+    if (message.type === 'audio') {
+      muxer?.addAudioChunkRaw(
+        message.chunk.data,
+        message.chunk.type,
+        message.chunk.timestamp,
+        message.chunk.duration,
+        message.meta
+      );
       return;
     }
 

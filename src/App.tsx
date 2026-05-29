@@ -30,9 +30,12 @@ import { WebglPosterRenderer } from './rendering/webglPosterRenderer';
 import {
   ARTBOARD_PRESETS,
   FONTS,
+  SCALE_OPTIONS,
+  WAVEFORM_OPTIONS,
   getArtboardPreset,
   initialLayers,
   initialSettings,
+  initialSoundSettings,
   resolveArtboardSize,
   resolvePreviewRenderSize,
   scaleLayersForSize,
@@ -45,6 +48,10 @@ import { useExport } from './hooks/useExport';
 import { useRenderSettings } from './hooks/useRenderSettings';
 import { useTextLayers } from './hooks/useTextLayers';
 import { readAutosave, useAutosave } from './hooks/useAutosave';
+import type { SoundSettings } from './audio/audioTypes';
+import { SonificationEngine } from './audio/SonificationEngine';
+import type { PosterTexture } from './types';
+import { buildAudioLayerInfo } from './shared/audioLayerInfo';
 
 type HistoryFeedback = 'Undo' | 'Redo' | null;
 
@@ -407,6 +414,19 @@ function textAreaSelectionToCharRange(textarea: HTMLTextAreaElement) {
   };
 }
 
+function autoResizeTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  // Reset first so scrollHeight reflects the new content/font-size
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+  // Also schedule a second pass after style recalc (e.g. font-size change)
+  requestAnimationFrame(() => {
+    if (!el.isConnected) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  });
+}
+
 /** Shift span positions after an insertion or deletion. */
 function adjustSpansForTextChange(
   oldText: string,
@@ -597,6 +617,12 @@ export default function App() {
   const [editingSel, setEditingSel] = useState<{ start: number; end: number } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [soundSettings, setSoundSettings] = useState<SoundSettings>(initialSoundSettings);
+  const soundSettingsRef = useRef<SoundSettings>(initialSoundSettings);
+  const [includeSoundInMp4, setIncludeSoundInMp4] = useState(false);
+  const [hasRendered, setHasRendered] = useState(false);
+  const sonificationEngineRef = useRef<SonificationEngine | null>(null);
+  const textureRef = useRef<PosterTexture | null>(null);
   const [altHeld, setAltHeld] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -641,9 +667,14 @@ export default function App() {
     setRecording,
     setStatus,
     setEditingId,
+    sonificationEngineRef,
+    soundSettings,
+    includeSoundInMp4,
+    textureRef,
   });
 
   settingsRef.current = settings;
+  soundSettingsRef.current = soundSettings;
   previewWarpRef.current = previewWarp;
   editingIdRef.current = editingId;
   draggingRef.current = draggingId !== null;
@@ -681,6 +712,11 @@ export default function App() {
     const renderLayers = scaleLayersForSize(visibleLayers, artboardSize, previewRenderSize);
     createPosterTexture(renderLayers, bgColor, previewRenderSize, maxMasses, settingsRef.current.pointSpacing).then((texture) => {
       if (cancelled) return;
+      textureRef.current = texture;
+      
+      // Reset the sonification traversal agent when physical shape changes
+      sonificationEngineRef.current?.resetAgent();
+
       if (rendererRef.current) {
         rendererRef.current.setSize(previewRenderSize);
         rendererRef.current.updateTexture(texture);
@@ -692,10 +728,18 @@ export default function App() {
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(texture.canvas, 0, 0);
         setStatus('FLAT');
+        setHasRendered(true);
       }
     });
     return () => { cancelled = true; };
   }, [layers, bgColor, artboardSize, previewRenderSize, editingId]);
+
+  useEffect(() => {
+    const engine = sonificationEngineRef.current;
+    if (engine?.isRunning) {
+      engine.setSettings(soundSettings);
+    }
+  }, [soundSettings]);
 
   useEffect(() => {
     let frame = 0;
@@ -708,11 +752,44 @@ export default function App() {
           flat ? { ...settingsRef.current, strength: 0, motionAmount: 0, showField: false, showMasses: false } : settingsRef.current,
           time,
         );
+        setHasRendered((prev) => prev ? prev : true);
+
+        // Update sonification engine each frame (same clock as renderer)
+        const engine = sonificationEngineRef.current;
+        const tex = textureRef.current;
+        if (engine?.isRunning && tex) {
+          const snap = editorSnapshotRef.current;
+          const currentLayers = snap.layers;
+          const currentSelectedLayer = currentLayers.find((l) => l.id === snap.selectedId) ?? null;
+          const currentArtboardSize = resolveArtboardSize(snap.artboardPreset, snap.orientation);
+
+          engine.update({
+            masses: tex.masses,
+            massCount: tex.massCount,
+            totalMass: tex.totalMass,
+            strength: settingsRef.current.strength,
+            decay: settingsRef.current.decay,
+            epsilon: settingsRef.current.epsilon,
+            motionAmount: settingsRef.current.motionAmount,
+            durationSec: 5,
+            fps: 30,
+            seed: soundSettingsRef.current.seed,
+            bgColorHex: snap.bgColor,
+            textColorHex: currentSelectedLayer?.color || currentLayers[0]?.color || '#111111',
+            fontFamily: currentSelectedLayer?.fontFamily || currentLayers[0]?.fontFamily || 'Pretendard',
+            layersInfo: buildAudioLayerInfo(currentLayers, currentArtboardSize),
+          }, time);
+        }
       }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    return () => { sonificationEngineRef.current?.dispose(); };
   }, []);
 
   useEffect(() => {
@@ -1047,23 +1124,28 @@ export default function App() {
   }
 
   function patchSelected(patch: Partial<TextLayer>, recordHistory = true) {
-    if (!selectedLayer || selectedLayer.locked) return;
+    if (selectedIds.length === 0) return;
     if (recordHistory) pushUndoSnapshot();
     setLayers((current) =>
-      current.map((layer) => (layer.id === selectedLayer.id ? { ...layer, ...patch } : layer)),
+      current.map((layer) =>
+        selectedIds.includes(layer.id) && !layer.locked
+          ? { ...layer, ...patch }
+          : layer
+      ),
     );
   }
 
   /**
    * Apply a style patch to the current text selection (if editing + selection exists),
-   * otherwise fall through to patchSelected on the whole layer.
+   * otherwise fall through to patchSelected on all selected layers.
    */
   function patchSelectionSpan(spanPatch: SpanPatch, layerPatch?: Partial<TextLayer>, recordHistory = true) {
-    if (!selectedLayer || selectedLayer.locked) return;
-    const activeSel = editingId === selectedLayer.id ? editingSel : null;
+    if (selectedIds.length === 0) return;
+    const activeSel = editingId && selectedLayer ? (editingId === selectedLayer.id ? editingSel : null) : null;
     const hasTextSel = activeSel && activeSel.start !== activeSel.end;
 
-    if (hasTextSel) {
+    if (hasTextSel && selectedLayer) {
+      if (selectedLayer.locked) return;
       if (recordHistory) pushUndoSnapshot();
       setLayers((current) =>
         current.map((layer) => {
@@ -1073,7 +1155,7 @@ export default function App() {
         }),
       );
     } else {
-      // No text selection – apply to whole layer
+      // No text selection – apply to all selected layers
       const patch: Partial<TextLayer> = layerPatch ?? {};
       const spanPropsToClear: (keyof SpanPatch)[] = [];
       if (spanPatch.fontFamily !== undefined) patch.fontFamily = spanPatch.fontFamily;
@@ -1088,7 +1170,7 @@ export default function App() {
       if (recordHistory) pushUndoSnapshot();
       setLayers((current) =>
         current.map((layer) => {
-          if (layer.id !== selectedLayer.id || layer.locked) return layer;
+          if (!selectedIds.includes(layer.id) || layer.locked) return layer;
           return {
             ...layer,
             ...patch,
@@ -1808,7 +1890,7 @@ export default function App() {
           <Field label="Decay" min={0.8} max={2.4} step={0.01} value={settings.decay} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ decay: value }, false)} />
           <Field label="Softness" min={1} max={120} value={settings.epsilon} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ epsilon: value }, false)} />
           <Field label="Stride" min={4} max={20} value={settings.pointSpacing} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSpacing: value }, false)} />
-          <Field label="Point size" min={1} max={15} step={0.5} value={settings.pointSize} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSize: value }, false)} />
+          <Field label="Point size" min={0} max={3} step={0.01} value={settings.pointSize} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSize: value }, false)} />
           <Field label="Motion" min={0} max={0.8} step={0.01} value={settings.motionAmount} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ motionAmount: value }, false)} />
           <div className="check-row">
             <label>
@@ -1828,6 +1910,76 @@ export default function App() {
             <Sparkles size={14} />
             RENDER
           </button>
+        </section>
+
+        {/* Sound */}
+        <section className="section" style={{ opacity: hasRendered ? 1 : 0.5 }}>
+          <div className="section-title">
+            <h2>Sound</h2>
+            {hasRendered && sonificationEngineRef.current?.isRunning ? (
+              <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.5px' }}>● Live</span>
+            ) : (
+              <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>○ Off</span>
+            )}
+          </div>
+          
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+            <button
+              type="button"
+              className={`render-button ${hasRendered && !sonificationEngineRef.current?.isRunning ? 'is-ready' : ''}`}
+              style={{ flex: 1, margin: 0 }}
+              disabled={!hasRendered}
+              onClick={() => {
+                const engine = sonificationEngineRef.current ?? new SonificationEngine(soundSettings);
+                sonificationEngineRef.current = engine;
+                if (engine.isRunning) {
+                  engine.stop();
+                  setSoundSettings((s) => ({ ...s, enabled: false }));
+                } else {
+                  engine.setSettings(soundSettings);
+                  engine.start();
+                  setSoundSettings((s) => ({ ...s, enabled: true }));
+                }
+              }}
+            >
+              {sonificationEngineRef.current?.isRunning ? '⏹ STOP SOUND' : '▶ PLAY SOUND'}
+            </button>
+            
+            <button
+              type="button"
+              className="render-button"
+              style={{ width: '40px', height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: 0 }}
+              title="Generate new sound variation"
+              disabled={!hasRendered || !sonificationEngineRef.current?.isRunning}
+              onClick={() => setSoundSettings(s => ({ ...s, seed: Math.floor(Math.random() * 1000000) }))}
+            >
+              <RotateCw size={15} />
+            </button>
+          </div>
+
+          <Field 
+            label="Volume" 
+            min={0} 
+            max={1} 
+            step={0.01} 
+            value={soundSettings.volume} 
+            onChange={(v) => {
+              setSoundSettings((s) => ({ ...s, volume: v }));
+              sonificationEngineRef.current?.setVolume(v);
+            }} 
+          />
+
+          <div className="check-row" style={{ marginTop: '10px' }}>
+            <label style={{ cursor: hasRendered ? 'pointer' : 'not-allowed', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="checkbox"
+                checked={includeSoundInMp4}
+                disabled={!hasRendered}
+                onChange={(e) => setIncludeSoundInMp4(e.target.checked)}
+              />
+              Include sound in MP4 export
+            </label>
+          </div>
         </section>
 
         <footer className="export-bar">
@@ -1949,10 +2101,12 @@ export default function App() {
                           className="layer-editor"
                           autoFocus
                           value={layer.text}
+                          ref={(el) => autoResizeTextarea(el)}
                           style={{
                             left: bounds.x,
                             top: bounds.y,
                             width: bounds.width,
+                            height: 'auto',
                             minHeight: bounds.height,
                             fontSize: layer.fontSize,
                             fontWeight: layer.fontWeight,
@@ -1965,8 +2119,11 @@ export default function App() {
                             transform: rotateCss,
                             transformOrigin: 'center center',
                             pointerEvents: 'all',
+                            overflow: 'hidden',
+                            resize: 'none',
                           }}
                           onChange={(event) => {
+                            autoResizeTextarea(event.target);
                             const newText = event.target.value;
                             const updatedSpans = adjustSpansForTextChange(layer.text, newText, layer.fontSpans);
                             updateLayer(layer.id, { text: newText, fontSpans: updatedSpans }, false);
@@ -1975,6 +2132,7 @@ export default function App() {
                             setEditingSel(textAreaSelectionToCharRange(event.currentTarget));
                           }}
                           onKeyUp={(event) => {
+                            autoResizeTextarea(event.currentTarget);
                             setEditingSel(textAreaSelectionToCharRange(event.currentTarget));
                           }}
                           onMouseUp={(event) => {

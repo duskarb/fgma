@@ -52,3 +52,5 @@ export type PosterTexture = {
   totalMass: number;
   bgColor: [number, number, number];
 };
+
+export type { SoundSettings, ScaleId, WaveformId } from './audio/audioTypes';

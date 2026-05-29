@@ -1,4 +1,5 @@
 import type { ArtboardSize, RenderSettings, TextLayer } from './types';
+import type { SoundSettings, ScaleId, WaveformId } from './audio/audioTypes';
 
 export type ArtboardPresetId = 'a4' | 'a3' | '4x5' | '1x1' | 'hd';
 export type Orientation = 'portrait' | 'landscape';
@@ -104,12 +105,38 @@ export const initialLayers: TextLayer[] = [
   },
 ];
 
+export const SCALE_OPTIONS: { id: ScaleId; label: string }[] = [
+  { id: 'pentatonic', label: 'Pentatonic' },
+  { id: 'minor',      label: 'Minor' },
+  { id: 'major',      label: 'Major' },
+  { id: 'chromatic',  label: 'Chromatic' },
+];
+
+export const WAVEFORM_OPTIONS: { id: WaveformId; label: string }[] = [
+  { id: 'sine',     label: 'Sine' },
+  { id: 'triangle', label: 'Triangle' },
+  { id: 'sawtooth', label: 'Sawtooth' },
+];
+
+export const initialSoundSettings: SoundSettings = {
+  enabled: false,
+  volume: 0.6,
+  voices: 4,
+  scaleId: 'pentatonic',
+  rootHz: 110,
+  octaves: 2,
+  waveform: 'sine',
+  brightness: 0.6,
+  motionDepth: 0.4,
+  seed: 42,
+};
+
 export const initialSettings: RenderSettings = {
   strength: 520,
   decay: 1.42,
   epsilon: 42,
   pointSpacing: 6,
-  pointSize: 4,
+  pointSize: 1.5,
   showField: true,
   showMasses: false,
   animate: true,
