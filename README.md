@@ -3,7 +3,9 @@
 **A graphic instrument between tool and artwork.**  
 **텍스트를 질량으로, 포스터를 힘의 장으로 바꾸는 그래픽 도구**
 
-[Live Demo](https://fgma-sage.vercel.app/)
+**[Live Demo](https://fgma-sage.vercel.app/)**
+
+<img src="assets/example-motion.gif" alt="움직이는 포스터 예시" width="70%">
 
 f(g)=ma는 도구와 작품의 사이에 있는 그래픽 시스템이다.
 
@@ -18,6 +20,16 @@ f(g)=ma is a graphic instrument between tool and artwork.
 The user makes posters, but the system reveals more than a finished image.  
 Text becomes mass, and layout becomes a field of force.  
 Instead of directly fixing a result, the designer tunes the conditions from which results emerge.
+
+## 화면 / Screens
+
+### 기본 화면 / Basic Screen
+
+<img src="assets/basic-screen.png" alt="기본 화면" width="70%">
+
+### 효과 적용 화면 / Effect Screen
+
+<img src="assets/effect-screen.png" alt="효과 적용 화면" width="70%">
 
 ## 디자인 문법에 대한 주장 / A Claim About Graphic Grammar
 
@@ -84,20 +96,6 @@ Cells with enough density become mass points.
 Those mass points are passed to a WebGL shader, which distorts the poster surface accordingly.
 
 See [algorithm documentation](docs/algorithm.md) for details.
-
-## 결과 예시 / Results
-
-### 움직이는 포스터 예시 / Motion Poster
-
-<img src="assets/example-motion.gif" alt="움직이는 포스터 예시" width="50%">
-
-### 기본 화면 / Basic Screen
-
-<img src="assets/basic-screen.png" alt="기본 화면" width="70%">
-
-### 효과 적용 화면 / Effect Screen
-
-<img src="assets/effect-screen.png" alt="효과 적용 화면" width="70%">
 
 ## 사용법 / Usage
 
