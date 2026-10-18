@@ -2409,14 +2409,13 @@ export default function App() {
             >
               {marquee && (
                 <div
+                  className="marquee-rect"
                   style={{
                     position: 'absolute',
                     left: marquee.x,
                     top: marquee.y,
                     width: marquee.w,
                     height: marquee.h,
-                    border: '1px solid #0d99ff',
-                    background: 'rgba(13,153,255,0.08)',
                     pointerEvents: 'none',
                   }}
                 />
