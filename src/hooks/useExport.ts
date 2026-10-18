@@ -9,6 +9,7 @@ import type { ArtboardSize, RenderSettings, TextLayer } from "../types";
 import type { ArtboardPresetId } from "../appConfig";
 import { ARTBOARD_PRESETS, scaleLayersForSize } from "../appConfig";
 import { createPosterTexture } from "../rendering/posterTexture";
+import { renderScale, scaleRenderSettings } from "../rendering/scaleRenderSettings";
 import type { WebglPosterRenderer } from "../rendering/webglPosterRenderer";
 import type { SonificationEngine } from "../audio/SonificationEngine";
 import type { SoundSettings } from "../audio/audioTypes";
@@ -34,13 +35,52 @@ type UseExportOptions = {
   setEditingId: Dispatch<SetStateAction<string | null>>;
   sonificationEngineRef: MutableRefObject<SonificationEngine | null>;
   soundSettings: SoundSettings;
-  includeSoundInMp4: boolean;
   textureRef: MutableRefObject<{
     masses: Float32Array;
     massCount: number;
     totalMass: number;
   } | null>;
 };
+
+export type ExportFormat = "png" | "jpg" | "pdf" | "mp4" | "webm" | "gif";
+
+export type ExportOptions = {
+  format: ExportFormat;
+  scale: number;
+  /** 0–1, JPG and PDF only. */
+  quality: number;
+  fps: number;
+  durationSec: number;
+  includeSound: boolean;
+  fileName: string;
+};
+
+export const MAX_EXPORT_SIDE = 8192;
+
+export function isMotionFormat(format: ExportFormat) {
+  return format === "mp4" || format === "webm" || format === "gif";
+}
+
+function hasWebCodecs() {
+  return typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined";
+}
+
+/** Formats recorded in real time from the live canvas (no frame-by-frame encode). */
+export function isRealtimeFormat(format: ExportFormat) {
+  return format === "webm" || (format === "mp4" && !hasWebCodecs());
+}
+
+export function exportSize(size: ArtboardSize, scale: number): ArtboardSize {
+  return {
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
+  };
+}
+
+function fileNameWithExt(name: string, ext: string) {
+  const base = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\.(png|jpe?g|pdf|mp4|webm|gif)$/i, "") || "fgma";
+  return `${base}.${ext}`;
+}
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -68,7 +108,6 @@ export function useExport({
   setEditingId,
   sonificationEngineRef,
   soundSettings,
-  includeSoundInMp4,
   textureRef,
 }: UseExportOptions) {
   async function renderTargetAtSize(
@@ -100,7 +139,10 @@ export function useExport({
   }
 
   async function restorePreviewRenderTarget() {
-    await renderTargetAtSize(previewRenderSize);
+    await renderTargetAtSize(
+      previewRenderSize,
+      scaleRenderSettings(settingsRef.current, renderScale(previewRenderSize, artboardSize)),
+    );
   }
 
   function createFrameReader(canvas: HTMLCanvasElement) {
@@ -183,14 +225,18 @@ export function useExport({
     });
   }
 
-  async function encodeGifWithWorker(canvas: HTMLCanvasElement) {
+  async function encodeGifWithWorker(
+    canvas: HTMLCanvasElement,
+    renderSettings: RenderSettings,
+    fps: number,
+    durationSec: number,
+  ) {
     const worker = new Worker(
       new URL("../workers/gifEncoder.worker.ts", import.meta.url),
       { type: "module" },
     );
     try {
-      const fps = 20;
-      const frameCount = Math.ceil(fps * 3.2);
+      const frameCount = Math.max(1, Math.ceil(fps * durationSec));
       const delay = Math.round(1000 / fps);
       const readFrame = createFrameReader(canvas);
 
@@ -205,7 +251,7 @@ export function useExport({
       const done = waitForWorkerDone(worker);
 
       for (let i = 0; i < frameCount; i++) {
-        rendererRef.current?.render(settingsRef.current, i / fps);
+        rendererRef.current?.render(renderSettings, i / fps);
         const rgba = readFrame();
         worker.postMessage({ type: "frame", rgba }, [rgba]);
         if (i % 4 === 0)
@@ -255,6 +301,9 @@ export function useExport({
 
   async function encodeMp4WithWorker(
     canvas: HTMLCanvasElement,
+    renderSettings: RenderSettings,
+    fps: number,
+    durationSec: number,
     audioBuffer?: AudioBuffer,
   ) {
     if (
@@ -264,9 +313,11 @@ export function useExport({
       throw new Error("WebCodecs not supported. Use WEBM instead.");
     }
 
-    const fps = 30;
-    const frameCount = fps * 5;
-    const bitrate = 12_000_000;
+    const frameCount = Math.max(1, Math.round(fps * durationSec));
+    // ~0.2 bits per pixel per frame, clamped to a sane range.
+    const bitrate = Math.round(
+      Math.min(40_000_000, Math.max(4_000_000, canvas.width * canvas.height * fps * 0.2)),
+    );
     const chosen = await chooseMp4Codec(
       canvas.width,
       canvas.height,
@@ -363,7 +414,7 @@ export function useExport({
       }
 
       for (let i = 0; i < frameCount; i++) {
-        rendererRef.current?.render(settingsRef.current, i / fps);
+        rendererRef.current?.render(renderSettings, i / fps);
         const bitmap = await createImageBitmap(canvas);
         worker.postMessage(
           {
@@ -385,245 +436,205 @@ export function useExport({
     }
   }
 
-  async function exportPng() {
-    setEditingId(null);
-    const exportSettings = previewWarp
+  function stillSettings() {
+    return previewWarp
       ? settingsRef.current
       : { ...settingsRef.current, strength: 0, motionAmount: 0 };
-    exportingRef.current = true;
-    try {
-      await renderTargetAtSize(artboardSize, exportSettings);
-      const blob = rendererRef.current
-        ? await rendererRef.current.toBlob("image/png")
-        : await new Promise<Blob>((resolve, reject) => {
-            canvasRef.current?.toBlob((nextBlob) => {
-              if (nextBlob) resolve(nextBlob);
-              else reject(new Error("Could not export canvas."));
-            }, "image/png");
-          });
-      downloadBlob(blob, "poster-webgl.png");
-    } finally {
-      await restorePreviewRenderTarget();
-      exportingRef.current = false;
-    }
   }
 
-  async function exportPdf() {
-    setEditingId(null);
-    const exportSettings = previewWarp
-      ? settingsRef.current
-      : { ...settingsRef.current, strength: 0, motionAmount: 0 };
-    exportingRef.current = true;
-    try {
-      await renderTargetAtSize(artboardSize, exportSettings);
-      const blob = rendererRef.current
-        ? await rendererRef.current.toBlob("image/jpeg", 0.95)
-        : await new Promise<Blob>((resolve, reject) => {
-            canvasRef.current?.toBlob(
-              (b) => {
-                if (b) resolve(b);
-                else reject(new Error("Could not export canvas."));
-              },
-              "image/jpeg",
-              0.95,
-            );
-          });
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      const isLandscape = artboardSize.width > artboardSize.height;
-      const preset = ARTBOARD_PRESETS.find((p) => p.id === artboardPreset);
-      const pageFormat =
-        preset?.id === "a4" || preset?.id === "a3"
-          ? (preset.id.toUpperCase() as "A4" | "A3")
-          : ([
-              artboardSize.width * 0.264583,
-              artboardSize.height * 0.264583,
-            ] as [number, number]);
-      const pdf = new jsPDF({
-        orientation: isLandscape ? "landscape" : "portrait",
-        unit: "mm",
-        format: pageFormat,
-      });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      pdf.addImage(dataUrl, "JPEG", 0, 0, pageW, pageH);
-      pdf.save("poster.pdf");
-    } finally {
-      await restorePreviewRenderTarget();
-      exportingRef.current = false;
-    }
+  function finishExport() {
+    exportingRef.current = false;
+    setRecording(false);
+    setStatus(rendererRef.current ? "LIVE" : "FLAT");
   }
 
-  async function exportWebm() {
-    const canvas = canvasRef.current;
-    if (!canvas || recording) return;
-    setEditingId(null);
-    await renderTargetAtSize(artboardSize);
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-      ? "video/webm;codecs=vp9"
-      : "video/webm";
-    setRecording(true);
-    setStatus("RECORDING");
-    const stream = canvas.captureStream(30);
-    const recorder = new MediaRecorder(stream, { mimeType });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size) chunks.push(event.data);
-    };
-    recorder.onstop = () => {
-      downloadBlob(
-        new Blob(chunks, { type: "video/webm" }),
-        "poster-motion.webm",
+  async function canvasBlob(type: string, quality?: number) {
+    if (rendererRef.current) return rendererRef.current.toBlob(type, quality);
+    return new Promise<Blob>((resolve, reject) => {
+      canvasRef.current?.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error("Could not export canvas."))),
+        type,
+        quality,
       );
-      restorePreviewRenderTarget().finally(() => {
-        setRecording(false);
-        setStatus(rendererRef.current ? "LIVE" : "FLAT");
-      });
-    };
-    recorder.start();
-    window.setTimeout(() => recorder.stop(), 3200);
+    });
   }
 
-  async function exportMp4() {
-    const canvas = canvasRef.current;
-    if (!canvas || recording) return;
-    setEditingId(null);
-    await renderTargetAtSize(artboardSize);
-    setRecording(true);
-    setStatus("RECORDING");
+  async function exportImage(options: ExportOptions) {
+    const size = exportSize(artboardSize, options.scale);
+    const renderSettings = scaleRenderSettings(stillSettings(), options.scale);
+    await renderTargetAtSize(size, renderSettings);
 
-    const withAudio = includeSoundInMp4;
-    const hasWebCodecs =
-      typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined";
-
-    // Path A: WebCodecs (Chrome / Edge / Safari with WebCodecs) - Frame-by-frame perfect rendering
-    if (hasWebCodecs) {
-      exportingRef.current = true;
-      try {
-        let audioBuffer: AudioBuffer | null = null;
-
-        if (withAudio) {
-          const tex = textureRef.current;
-          if (tex) {
-            const input: MotionAudioInput = {
-              masses: tex.masses,
-              massCount: tex.massCount,
-              totalMass: tex.totalMass,
-              strength: settingsRef.current.strength,
-              decay: settingsRef.current.decay,
-              epsilon: settingsRef.current.epsilon,
-              motionAmount: settingsRef.current.motionAmount,
-              durationSec: 5,
-              fps: 30,
-              seed: soundSettings.seed,
-              bgColorHex: bgColor,
-              textColorHex: layers[0]?.color || "#111111",
-              fontFamily: layers[0]?.fontFamily || "Pretendard",
-              layersInfo: buildAudioLayerInfo(layers, artboardSize),
-            };
-            setStatus("AUDIO…");
-            audioBuffer = await renderOfflineAudio(input, soundSettings);
-          }
-        }
-
-        const buffer = await encodeMp4WithWorker(
-          canvas,
-          audioBuffer ?? undefined,
-        );
-        downloadBlob(
-          new Blob([buffer], { type: "video/mp4" }),
-          "poster-motion.mp4",
-        );
-      } catch (err) {
-        console.error("MP4 export failed:", err);
-        alert(`MP4 export failed: ${err}`);
-      } finally {
-        await restorePreviewRenderTarget();
-        exportingRef.current = false;
-        setRecording(false);
-        setStatus(rendererRef.current ? "LIVE" : "FLAT");
-      }
+    if (options.format === "png") {
+      downloadBlob(await canvasBlob("image/png"), fileNameWithExt(options.fileName, "png"));
       return;
     }
 
-    // Path B: MediaRecorder fallback (Firefox, etc.)
-    const mp4Mime = [
-      "video/mp4;codecs=avc1",
-      "video/mp4;codecs=h264",
-      "video/mp4",
-    ].find((type) => MediaRecorder.isTypeSupported(type));
-    if (mp4Mime) {
-      const videoStream = canvas.captureStream(30);
-      let mediaStream = videoStream;
+    const jpeg = await canvasBlob("image/jpeg", options.quality);
+    if (options.format === "jpg") {
+      downloadBlob(jpeg, fileNameWithExt(options.fileName, "jpg"));
+      return;
+    }
 
-      if (withAudio) {
-        const engine = sonificationEngineRef.current;
-        if (engine) {
-          if (!engine.isRunning) engine.start();
-          const audioTrack = engine.getCaptureStream().getAudioTracks()[0];
-          if (audioTrack) {
-            mediaStream = new MediaStream([
-              ...videoStream.getVideoTracks(),
-              audioTrack,
-            ]);
-          }
-        }
-      }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(jpeg);
+    });
+    // Page size follows the 1x artboard; scale only raises the image DPI.
+    const isLandscape = artboardSize.width > artboardSize.height;
+    const preset = ARTBOARD_PRESETS.find((p) => p.id === artboardPreset);
+    const pageFormat =
+      preset?.id === "a4" || preset?.id === "a3"
+        ? (preset.id.toUpperCase() as "A4" | "A3")
+        : ([
+            artboardSize.width * 0.264583,
+            artboardSize.height * 0.264583,
+          ] as [number, number]);
+    const pdf = new jsPDF({
+      orientation: isLandscape ? "landscape" : "portrait",
+      unit: "mm",
+      format: pageFormat,
+    });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    pdf.addImage(dataUrl, "JPEG", 0, 0, pageW, pageH);
+    pdf.save(fileNameWithExt(options.fileName, "pdf"));
+  }
 
-      const recorder = new MediaRecorder(mediaStream, { mimeType: mp4Mime });
+  async function renderAudio(options: ExportOptions) {
+    const tex = textureRef.current;
+    if (!options.includeSound || !tex) return null;
+    const input: MotionAudioInput = {
+      masses: tex.masses,
+      massCount: tex.massCount,
+      totalMass: tex.totalMass,
+      strength: settingsRef.current.strength,
+      decay: settingsRef.current.decay,
+      epsilon: settingsRef.current.epsilon,
+      motionAmount: settingsRef.current.motionAmount,
+      durationSec: options.durationSec,
+      fps: options.fps,
+      seed: soundSettings.seed,
+      bgColorHex: bgColor,
+      textColorHex: layers[0]?.color || "#111111",
+      fontFamily: layers[0]?.fontFamily || "Pretendard",
+      layersInfo: buildAudioLayerInfo(layers, artboardSize),
+    };
+    setStatus("AUDIO…");
+    return renderOfflineAudio(input, soundSettings);
+  }
+
+  /** Real-time capture through MediaRecorder; resolves when the file is saved. */
+  function recordRealtime(
+    canvas: HTMLCanvasElement,
+    mimeType: string,
+    options: ExportOptions,
+    ext: string,
+    audioTrack?: MediaStreamTrack,
+  ) {
+    return new Promise<void>((resolve) => {
+      const videoStream = canvas.captureStream(options.fps);
+      const stream = audioTrack
+        ? new MediaStream([...videoStream.getVideoTracks(), audioTrack])
+        : videoStream;
+      const recorder = new MediaRecorder(stream, { mimeType });
       const chunks: Blob[] = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunks.push(event.data);
       };
       recorder.onstop = () => {
         downloadBlob(
-          new Blob(chunks, { type: "video/mp4" }),
-          "poster-motion.mp4",
+          new Blob(chunks, { type: mimeType.split(";")[0] }),
+          fileNameWithExt(options.fileName, ext),
         );
-        restorePreviewRenderTarget().finally(() => {
-          setRecording(false);
-          setStatus(rendererRef.current ? "LIVE" : "FLAT");
-        });
+        resolve();
       };
       recorder.start();
-      window.setTimeout(() => recorder.stop(), 5000);
+      window.setTimeout(() => recorder.stop(), options.durationSec * 1000);
+    });
+  }
+
+  async function exportMotion(options: ExportOptions) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    // Real-time capture records the live render loop, which always uses the
+    // 1x settings, so it can only run at 1x.
+    const scale = isRealtimeFormat(options.format) ? 1 : options.scale;
+    const size = exportSize(artboardSize, scale);
+    const renderSettings = scaleRenderSettings(settingsRef.current, scale);
+    await renderTargetAtSize(size, renderSettings);
+
+    if (options.format === "gif") {
+      const buffer = await encodeGifWithWorker(canvas, renderSettings, options.fps, options.durationSec);
+      downloadBlob(new Blob([buffer], { type: "image/gif" }), fileNameWithExt(options.fileName, "gif"));
       return;
     }
 
-    alert(
-      "MP4 export not supported in this browser. Please try Chrome/Edge or export as WEBM.",
-    );
-    setRecording(false);
-    setStatus(rendererRef.current ? "LIVE" : "FLAT");
+    if (options.format === "webm") {
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9"
+        : "video/webm";
+      exportingRef.current = false;
+      await recordRealtime(canvas, mimeType, options, "webm");
+      return;
+    }
+
+    // MP4 path A: WebCodecs, frame-by-frame.
+    if (hasWebCodecs()) {
+      const audioBuffer = await renderAudio(options);
+      const buffer = await encodeMp4WithWorker(
+        canvas,
+        renderSettings,
+        options.fps,
+        options.durationSec,
+        audioBuffer ?? undefined,
+      );
+      downloadBlob(new Blob([buffer], { type: "video/mp4" }), fileNameWithExt(options.fileName, "mp4"));
+      return;
+    }
+
+    // MP4 path B: MediaRecorder fallback (Firefox, etc.)
+    const mp4Mime = [
+      "video/mp4;codecs=avc1",
+      "video/mp4;codecs=h264",
+      "video/mp4",
+    ].find((type) => MediaRecorder.isTypeSupported(type));
+    if (!mp4Mime) {
+      throw new Error("MP4 export is not supported in this browser. Try Chrome/Edge or export WEBM.");
+    }
+    let audioTrack: MediaStreamTrack | undefined;
+    if (options.includeSound) {
+      const engine = sonificationEngineRef.current;
+      if (engine) {
+        if (!engine.isRunning) engine.start();
+        audioTrack = engine.getCaptureStream().getAudioTracks()[0];
+      }
+    }
+    exportingRef.current = false;
+    await recordRealtime(canvas, mp4Mime, options, "mp4", audioTrack);
   }
 
-  async function exportGif() {
-    const canvas = canvasRef.current;
-    if (!canvas || recording) return;
+  /** Returns true when the file was produced. */
+  async function runExport(options: ExportOptions) {
+    if (recording) return false;
     setEditingId(null);
     setRecording(true);
-    setStatus("RECORDING");
+    setStatus(isMotionFormat(options.format) ? "RECORDING" : "RENDERING");
     exportingRef.current = true;
     try {
-      await renderTargetAtSize(artboardSize);
-      const buffer = await encodeGifWithWorker(canvas);
-      downloadBlob(
-        new Blob([buffer], { type: "image/gif" }),
-        "poster-motion.gif",
-      );
+      if (isMotionFormat(options.format)) await exportMotion(options);
+      else await exportImage(options);
+      return true;
     } catch (err) {
-      console.error("GIF export failed:", err);
+      console.error(`${options.format.toUpperCase()} export failed:`, err);
+      alert(`${options.format.toUpperCase()} export failed: ${err instanceof Error ? err.message : err}`);
+      return false;
     } finally {
       await restorePreviewRenderTarget();
-      exportingRef.current = false;
-      setRecording(false);
-      setStatus(rendererRef.current ? "LIVE" : "FLAT");
+      finishExport();
     }
   }
 
-  return { exportPng, exportPdf, exportWebm, exportMp4, exportGif };
+  return { runExport };
 }

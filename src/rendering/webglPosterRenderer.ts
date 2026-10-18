@@ -40,6 +40,7 @@ uniform float uPointSize;
 uniform bool uShowField;
 uniform bool uShowMasses;
 uniform vec3 uBgColor;
+uniform float uPixelScale;
 
 varying vec2 vUv;
 
@@ -69,7 +70,7 @@ vec2 fieldAt(vec2 p, float pulse) {
   }
 
   float edge = min(min(p.x, uResolution.x - p.x), min(p.y, uResolution.y - p.y));
-  field *= smoothstep(0.0, 72.0, edge);
+  field *= smoothstep(0.0, 72.0 * uPixelScale, edge);
   return field;
 }
 
@@ -85,7 +86,7 @@ void main() {
   float isBackground = 1.0 - smoothstep(0.08, 0.22, textDist);
 
   if (uShowField) {
-    float g = grid(samplePoint, 36.0);
+    float g = grid(samplePoint, 36.0 * uPixelScale);
     color.rgb = mix(color.rgb, vec3(0.02, 0.10, 0.08), g * 0.18 * isBackground);
   }
 
@@ -195,6 +196,7 @@ export class WebglPosterRenderer {
       showField: this.gl.getUniformLocation(this.program, 'uShowField'),
       showMasses: this.gl.getUniformLocation(this.program, 'uShowMasses'),
       bgColor: this.gl.getUniformLocation(this.program, 'uBgColor'),
+      pixelScale: this.gl.getUniformLocation(this.program, 'uPixelScale'),
     };
 
     this.setup();
@@ -266,6 +268,7 @@ export class WebglPosterRenderer {
     gl.uniform1i(this.locations.showField, settings.showField ? 1 : 0);
     gl.uniform1i(this.locations.showMasses, settings.showMasses ? 1 : 0);
     gl.uniform3fv(this.locations.bgColor, this.bgColor);
+    gl.uniform1f(this.locations.pixelScale, settings.pixelScale ?? 1);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

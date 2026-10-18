@@ -13,6 +13,7 @@ import {
   Copy,
   Download,
   Film,
+  Info,
   Lock,
   LockOpen,
   Maximize2,
@@ -29,10 +30,13 @@ import {
   Type,
 } from 'lucide-react';
 import type { ArtboardSize, FontSpan, RenderSettings, TextLayer } from './types';
+import { version as APP_VERSION } from '../package.json';
 import { createPosterTexture, estimateLayerBounds } from './rendering/posterTexture';
 import { WebglPosterRenderer } from './rendering/webglPosterRenderer';
+import { renderScale, scaleRenderSettings } from './rendering/scaleRenderSettings';
 import {
   ARTBOARD_PRESETS,
+  ARTBOARD_PRESET_GROUPS,
   FONTS,
   SCALE_OPTIONS,
   WAVEFORM_OPTIONS,
@@ -48,7 +52,15 @@ import {
   type PanPoint,
   type ViewZoom,
 } from './appConfig';
-import { useExport } from './hooks/useExport';
+import {
+  MAX_EXPORT_SIDE,
+  exportSize,
+  isMotionFormat,
+  isRealtimeFormat,
+  useExport,
+  type ExportFormat,
+  type ExportOptions,
+} from './hooks/useExport';
 import { useRenderSettings } from './hooks/useRenderSettings';
 import { useTextLayers } from './hooks/useTextLayers';
 import { readAutosave, useAutosave } from './hooks/useAutosave';
@@ -59,14 +71,68 @@ import { buildAudioLayerInfo } from './shared/audioLayerInfo';
 
 type HistoryFeedback = 'Undo' | 'Redo' | null;
 
-type PanelTab = 'draw' | 'warp' | 'sound' | 'export' | 'help';
+type PanelTab = 'draw' | 'warp' | 'sound' | 'help';
 
 const PANEL_TABS: { id: PanelTab; label: string }[] = [
   { id: 'draw', label: 'Draw' },
   { id: 'warp', label: 'Warp' },
   { id: 'sound', label: 'Sound' },
-  { id: 'export', label: 'Export' },
   { id: 'help', label: 'Help' },
+];
+
+const EXPORT_FORMATS: { group: string; items: { id: ExportFormat; label: string }[] }[] = [
+  { group: 'Image', items: [{ id: 'png', label: 'PNG' }, { id: 'jpg', label: 'JPG' }, { id: 'pdf', label: 'PDF' }] },
+  { group: 'Motion', items: [{ id: 'mp4', label: 'MP4 (H.264)' }, { id: 'webm', label: 'WEBM' }, { id: 'gif', label: 'GIF' }] },
+];
+
+const EXPORT_SCALES = [0.5, 1, 2, 3, 4];
+const VIDEO_FPS = [24, 30, 60];
+const GIF_FPS = [10, 15, 20, 25];
+
+const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
+  format: 'png',
+  scale: 1,
+  quality: 0.92,
+  fps: 30,
+  durationSec: 5,
+  includeSound: false,
+  fileName: '',
+};
+
+const EXPORT_PRESETS: { label: string; title: string; options: Partial<ExportOptions> }[] = [
+  { label: 'Print', title: 'PDF at 2x for print', options: { format: 'pdf', scale: 2, quality: 0.95 } },
+  { label: 'Post', title: 'JPG at 1x for an Instagram feed post', options: { format: 'jpg', scale: 1, quality: 0.92 } },
+  { label: 'Reel', title: 'MP4 at 1x, 30fps for Instagram Reels', options: { format: 'mp4', scale: 1, fps: 30, durationSec: 5 } },
+];
+
+function fpsOptions(format: ExportFormat) {
+  return format === 'gif' ? GIF_FPS : VIDEO_FPS;
+}
+
+function withExportFormat(options: ExportOptions, format: ExportFormat): ExportOptions {
+  const fpsList = fpsOptions(format);
+  const fps = fpsList.includes(options.fps)
+    ? options.fps
+    : fpsList.reduce((best, f) => (Math.abs(f - options.fps) < Math.abs(best - options.fps) ? f : best));
+  return { ...options, format, fps, scale: isRealtimeFormat(format) ? 1 : options.scale };
+}
+
+// Print sizes can be either orientation; platform sizes are fixed.
+const START_CHOICES: { preset: (typeof ARTBOARD_PRESETS)[number]; orientation: Orientation; label: string }[] =
+  ARTBOARD_PRESETS.flatMap((preset) => {
+    const base = { preset, orientation: preset.defaultOrientation, label: preset.label };
+    if (preset.group !== 'Print') return [base];
+    return [
+      { preset, orientation: 'portrait' as Orientation, label: `${preset.label} Portrait` },
+      { preset, orientation: 'landscape' as Orientation, label: `${preset.label} Landscape` },
+    ];
+  });
+
+const ABOUT_LINKS: { label: string; href: string; text: string }[] = [
+  { label: 'Made by', href: 'https://www.yeonamkyu.com', text: 'yeonamkyu.com' },
+  { label: 'Instagram', href: 'https://www.instagram.com/duskarb/', text: '@duskarb' },
+  { label: 'Source', href: 'https://github.com/duskarb/fgma', text: 'github.com/duskarb/fgma' },
+  { label: 'Feedback', href: 'https://github.com/duskarb/fgma/issues', text: 'Report a bug / idea' },
 ];
 
 const SHORTCUTS: { group: string; items: [string, string][] }[] = [
@@ -75,6 +141,7 @@ const SHORTCUTS: { group: string; items: [string, string][] }[] = [
   { group: 'Move', items: [['Arrow keys', 'Nudge 1px'], ['Shift+Arrow', 'Nudge 10px'], ['Shift+Drag', 'Lock axis / snap 15°'], ['[ / ]', 'Send to back / bring to front'], ['Cmd/Ctrl+[ / ]', 'Move backward / forward']] },
   { group: 'View', items: [['Space+Drag / Wheel', 'Pan canvas'], ['Ctrl+Wheel / Pinch', 'Zoom']] },
   { group: 'History', items: [['Cmd/Ctrl+Z', 'Undo'], ['Cmd/Ctrl+Shift+Z', 'Redo']] },
+  { group: 'File', items: [['Cmd/Ctrl+Shift+E', 'Export…']] },
 ];
 
 function zoomLabel(zoom: ViewZoom, resolvedZoom: number) {
@@ -634,6 +701,7 @@ export default function App() {
   const settingsRef = useRef(initialSettings);
   const previewWarpRef = useRef(true);
   const editingIdRef = useRef<string | null>(null);
+  const artboardSizeRef = useRef<ArtboardSize>({ width: 1, height: 1 });
   const draggingRef = useRef(false);
   const {
     layers,
@@ -665,9 +733,12 @@ export default function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [panelTab, setPanelTab] = useState<PanelTab>('draw');
+  const [showStart, setShowStart] = useState(true);
+  const exportDialogRef = useRef<HTMLDialogElement>(null);
+  const aboutDialogRef = useRef<HTMLDialogElement>(null);
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(initialSoundSettings);
   const soundSettingsRef = useRef<SoundSettings>(initialSoundSettings);
-  const [includeSoundInMp4, setIncludeSoundInMp4] = useState(false);
+  const [exportOptions, setExportOptions] = useState<ExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const [hasRendered, setHasRendered] = useState(false);
   const sonificationEngineRef = useRef<SonificationEngine | null>(null);
   const textureRef = useRef<PosterTexture | null>(null);
@@ -700,7 +771,7 @@ export default function App() {
   );
   const resolvedViewZoom = viewZoom === 'fit' ? fitZoom : viewZoom;
   const stageDisplayWidth = Math.max(80, Math.round(artboardSize.width * resolvedViewZoom));
-  const { exportPng, exportPdf, exportWebm, exportMp4, exportGif } = useExport({
+  const { runExport } = useExport({
     canvasRef,
     rendererRef,
     exportingRef,
@@ -717,14 +788,26 @@ export default function App() {
     setEditingId,
     sonificationEngineRef,
     soundSettings,
-    includeSoundInMp4,
     textureRef,
   });
+
+  const currentPreset = getArtboardPreset(artboardPreset);
+  const exportIsMotion = isMotionFormat(exportOptions.format);
+  // Fall back to the largest scale that fits when the artboard grows past the limit.
+  const exportScale = isRealtimeFormat(exportOptions.format)
+    ? 1
+    : Math.max(0.5, ...EXPORT_SCALES.filter((scale) => (
+      scale <= exportOptions.scale
+      && Math.max(artboardSize.width, artboardSize.height) * scale <= MAX_EXPORT_SIDE
+    )));
+  const exportTarget = exportSize(artboardSize, exportScale);
+  const defaultExportName = `fgma-${currentPreset.group === 'Instagram' ? 'ig-' : ''}${artboardSize.width}x${artboardSize.height}${exportScale === 1 ? '' : `@${exportScale}x`}`;
 
   settingsRef.current = settings;
   soundSettingsRef.current = soundSettings;
   previewWarpRef.current = previewWarp;
   editingIdRef.current = editingId;
+  artboardSizeRef.current = artboardSize;
   draggingRef.current = draggingId !== null;
   editorSnapshotRef.current = { layers, selectedId, selectedIds, bgColor, artboardPreset, orientation, settings };
   useAutosave({ layers, selectedId, selectedIds, bgColor, artboardPreset, orientation, settings });
@@ -758,7 +841,9 @@ export default function App() {
     const maxMasses = rendererRef.current?.getMaxMasses();
     const visibleLayers = editingId ? layers.filter((l) => l.id !== editingId) : layers;
     const renderLayers = scaleLayersForSize(visibleLayers, artboardSize, previewRenderSize);
-    createPosterTexture(renderLayers, bgColor, previewRenderSize, maxMasses, settingsRef.current.pointSpacing).then((texture) => {
+    // Sample masses on the same grid the export uses, scaled down to the preview.
+    const previewStride = settingsRef.current.pointSpacing * renderScale(previewRenderSize, artboardSize);
+    createPosterTexture(renderLayers, bgColor, previewRenderSize, maxMasses, previewStride).then((texture) => {
       if (cancelled) return;
       textureRef.current = texture;
       
@@ -796,8 +881,13 @@ export default function App() {
       if (!exportingRef.current && rendererRef.current) {
         const time = (performance.now() - started) / 1000;
         const flat = !previewWarpRef.current || editingIdRef.current !== null || draggingRef.current;
+        // Scale from the canvas's actual size, so real-time export at 1x also renders correctly.
+        const scale = canvasRef.current
+          ? renderScale(canvasRef.current, artboardSizeRef.current)
+          : 1;
+        const liveSettings = scaleRenderSettings(settingsRef.current, scale);
         rendererRef.current.render(
-          flat ? { ...settingsRef.current, strength: 0, motionAmount: 0, showField: false, showMasses: false } : settingsRef.current,
+          flat ? { ...liveSettings, strength: 0, motionAmount: 0, showField: false, showMasses: false } : liveSettings,
           time,
         );
         setHasRendered((prev) => prev ? prev : true);
@@ -898,8 +988,15 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Canvas shortcuts stay off while a modal (start screen, export dialog) is up.
+      if (showStart || exportDialogRef.current?.open || aboutDialogRef.current?.open) return;
       if (e.key === 'Alt') { e.preventDefault(); setAltHeld(true); return; }
       if (isEditableTarget(e.target)) return;
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        openExportDialog();
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) {
         e.preventDefault();
         redo();
@@ -966,7 +1063,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [editingId, selectedId, selectedIds, layers]);
+  }, [editingId, selectedId, selectedIds, layers, showStart]);
 
   useEffect(() => {
     const handleCopy = (event: ClipboardEvent) => {
@@ -1151,9 +1248,9 @@ export default function App() {
     setOrientation(nextOrientation);
   }
 
-  function rotateArtboard() {
-    const nextOrientation = orientation === 'portrait' ? 'landscape' : 'portrait';
-    changeArtboard(artboardPreset, nextOrientation);
+  function openExportDialog() {
+    setEditingId(null);
+    exportDialogRef.current?.showModal();
   }
 
   function stepZoom(direction: -1 | 1) {
@@ -1728,6 +1825,15 @@ export default function App() {
               {tab.label}
             </button>
           ))}
+          <button
+            type="button"
+            className="panel-tab panel-about"
+            title="About f(g)=ma"
+            aria-label="About f(g)=ma"
+            onClick={() => aboutDialogRef.current?.showModal()}
+          >
+            <Info size={13} />
+          </button>
         </nav>
 
         <div className="panel-scroll">
@@ -1739,23 +1845,11 @@ export default function App() {
                   <h2>Artboard</h2>
                   <span>{artboardSize.width} × {artboardSize.height}</span>
                 </div>
-                <div className="prop-group">
-                  <div className="prop-group-label">Size</div>
-                  <div className="control-row control-row--fill-auto">
-                    <select
-                      className="select"
-                      value={artboardPreset}
-                      onChange={(event) => changeArtboard(event.target.value as ArtboardPresetId)}
-                    >
-                      {ARTBOARD_PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>{preset.label}</option>
-                      ))}
-                    </select>
-                    <button type="button" onClick={rotateArtboard} title="Rotate artboard">
-                      <RotateCw size={13} />
-                      {orientation === 'portrait' ? 'Port' : 'Land'}
-                    </button>
-                  </div>
+                <div className="artboard-info">
+                  <span>{currentPreset.group} · {currentPreset.label}</span>
+                  <button type="button" onClick={() => setShowStart(true)} title="Back to the start screen to pick another size">
+                    Change…
+                  </button>
                 </div>
                 <div className="prop-group">
                   <div className="prop-group-label">Background</div>
@@ -2000,40 +2094,6 @@ export default function App() {
             </>
           )}
 
-          {panelTab === 'export' && (
-            <>
-              <section className="section">
-                <div className="section-title"><h2>Still</h2></div>
-                <div className="control-row control-row--2">
-                  <button className="solid" type="button" onClick={exportPng}><Download size={13} /> PNG</button>
-                  <button type="button" onClick={exportPdf}><Download size={13} /> PDF</button>
-                </div>
-              </section>
-              <section className="section">
-                <div className="section-title">
-                  <h2>Motion</h2>
-                  <span>{recording ? 'Recording…' : ''}</span>
-                </div>
-                <div className="control-row control-row--3">
-                  <button type="button" onClick={exportWebm} disabled={recording}><Film size={13} /> WEBM</button>
-                  <button type="button" onClick={exportMp4} disabled={recording}><Film size={13} /> MP4</button>
-                  <button type="button" onClick={exportGif} disabled={recording}><Film size={13} /> GIF</button>
-                </div>
-                <div className="check-list">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={includeSoundInMp4}
-                      disabled={!hasRendered}
-                      onChange={(e) => setIncludeSoundInMp4(e.target.checked)}
-                    />
-                    Include sound in MP4
-                  </label>
-                </div>
-              </section>
-            </>
-          )}
-
           {panelTab === 'help' && (
             <>
               {SHORTCUTS.map((group) => (
@@ -2052,7 +2112,247 @@ export default function App() {
             </>
           )}
         </div>
+
+        <footer className="panel-footer">
+          <button className="primary-action is-ready" type="button" onClick={openExportDialog} title="Export (⌘⇧E)">
+            <Download size={13} /> Export…
+          </button>
+        </footer>
       </aside>
+
+      <dialog ref={exportDialogRef} className="export-dialog" aria-labelledby="export-dialog-title">
+        <div className="section-title">
+          <h2 id="export-dialog-title">Export</h2>
+          <span>{exportTarget.width} × {exportTarget.height}</span>
+        </div>
+        <div className="export-dialog-body">
+            <div className="prop-group">
+              <div className="prop-group-label">Preset</div>
+              <div className="control-row control-row--3">
+                {EXPORT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    title={preset.title}
+                    onClick={() => setExportOptions((o) => withExportFormat({ ...o, ...preset.options }, preset.options.format ?? o.format))}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <table className="form-table">
+              <tbody>
+                <tr>
+                  <th><label htmlFor="export-format">Format</label></th>
+                  <td>
+                    <select
+                      id="export-format"
+                      value={exportOptions.format}
+                      onChange={(e) => setExportOptions((o) => withExportFormat(o, e.target.value as ExportFormat))}
+                    >
+                      {EXPORT_FORMATS.map((group) => (
+                        <optgroup key={group.group} label={group.group}>
+                          {group.items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+                <tr>
+                  <th><label htmlFor="export-scale">Scale</label></th>
+                  <td>
+                    <select
+                      id="export-scale"
+                      value={exportScale}
+                      disabled={isRealtimeFormat(exportOptions.format)}
+                      onChange={(e) => setExportOptions((o) => ({ ...o, scale: Number(e.target.value) }))}
+                    >
+                      {EXPORT_SCALES.map((scale) => {
+                        const size = exportSize(artboardSize, scale);
+                        const tooLarge = Math.max(size.width, size.height) > MAX_EXPORT_SIDE;
+                        return (
+                          <option key={scale} value={scale} disabled={tooLarge}>
+                            {scale}x — {size.width}×{size.height}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </td>
+                </tr>
+                {(exportOptions.format === 'jpg' || exportOptions.format === 'pdf') && (
+                  <tr>
+                    <th><label htmlFor="export-quality">Quality</label></th>
+                    <td className="form-table-range">
+                      <input
+                        id="export-quality"
+                        type="range"
+                        min={50}
+                        max={100}
+                        value={Math.round(exportOptions.quality * 100)}
+                        onChange={(e) => setExportOptions((o) => ({ ...o, quality: Number(e.target.value) / 100 }))}
+                      />
+                      <output htmlFor="export-quality">{Math.round(exportOptions.quality * 100)}</output>
+                    </td>
+                  </tr>
+                )}
+                {exportIsMotion && (
+                  <>
+                    <tr>
+                      <th><label htmlFor="export-duration">Duration</label></th>
+                      <td>
+                        <input
+                          id="export-duration"
+                          type="number"
+                          min={1}
+                          max={60}
+                          step={0.5}
+                          value={exportOptions.durationSec}
+                          onChange={(e) => setExportOptions((o) => ({ ...o, durationSec: clamp(Number(e.target.value) || 1, 1, 60) }))}
+                        />
+                        {' '}s
+                      </td>
+                    </tr>
+                    <tr>
+                      <th><label htmlFor="export-fps">Frame rate</label></th>
+                      <td>
+                        <select
+                          id="export-fps"
+                          value={exportOptions.fps}
+                          onChange={(e) => setExportOptions((o) => ({ ...o, fps: Number(e.target.value) }))}
+                        >
+                          {fpsOptions(exportOptions.format).map((fps) => <option key={fps} value={fps}>{fps} fps</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  </>
+                )}
+                {exportOptions.format === 'mp4' && (
+                  <tr>
+                    <th>Sound</th>
+                    <td>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={exportOptions.includeSound}
+                          disabled={!hasRendered}
+                          onChange={(e) => setExportOptions((o) => ({ ...o, includeSound: e.target.checked }))}
+                        />
+                        Include audio track
+                      </label>
+                    </td>
+                  </tr>
+                )}
+                <tr>
+                  <th><label htmlFor="export-name">File name</label></th>
+                  <td>
+                    <input
+                      id="export-name"
+                      type="text"
+                      value={exportOptions.fileName}
+                      placeholder={defaultExportName}
+                      onChange={(e) => setExportOptions((o) => ({ ...o, fileName: e.target.value }))}
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <dl className="spec-list">
+              <div><dt>Output</dt><dd>{(exportOptions.fileName.trim() || defaultExportName)}.{exportOptions.format}</dd></div>
+              <div><dt>Pixels</dt><dd>{exportTarget.width} × {exportTarget.height}</dd></div>
+              {exportOptions.format === 'pdf' && <div><dt>Page</dt><dd>{currentPreset.group === 'Print' ? currentPreset.label : `${Math.round(artboardSize.width * 0.264583)} × ${Math.round(artboardSize.height * 0.264583)} mm`}</dd></div>}
+              {exportIsMotion && <div><dt>Frames</dt><dd>{Math.round(exportOptions.fps * exportOptions.durationSec)} @ {exportOptions.fps} fps</dd></div>}
+              {isRealtimeFormat(exportOptions.format) && <div><dt>Note</dt><dd>Recorded in real time ({exportOptions.durationSec}s), 1x only</dd></div>}
+            </dl>
+        </div>
+        <div className="export-dialog-actions">
+          <button type="button" onClick={() => exportDialogRef.current?.close()} disabled={recording}>Cancel</button>
+          <button
+            className="primary-action is-ready"
+            type="button"
+            disabled={recording}
+            onClick={async () => {
+              const ok = await runExport({ ...exportOptions, scale: exportScale, fileName: exportOptions.fileName.trim() || defaultExportName });
+              if (ok) exportDialogRef.current?.close();
+            }}
+          >
+            {exportIsMotion ? <Film size={13} /> : <Download size={13} />}
+            {recording ? status : `Export ${exportOptions.format.toUpperCase()}`}
+          </button>
+        </div>
+      </dialog>
+
+      <dialog ref={aboutDialogRef} className="export-dialog" aria-labelledby="about-title">
+        <div className="section-title">
+          <h2 id="about-title">About</h2>
+          <span>v{APP_VERSION}</span>
+        </div>
+        <div className="export-dialog-body">
+          <p className="about-lead">
+            <b>f(g)=ma</b> is a graphic instrument between tool and artwork.
+            Text becomes mass, and the poster becomes a field of force —
+            you tune the conditions instead of placing the result.
+          </p>
+          <dl className="spec-list">
+            {ABOUT_LINKS.map((link) => (
+              <div key={link.label}>
+                <dt>{link.label}</dt>
+                <dd><a href={link.href} target="_blank" rel="noreferrer">{link.text}</a></dd>
+              </div>
+            ))}
+            <div><dt>License</dt><dd>MIT</dd></div>
+          </dl>
+        </div>
+        <div className="export-dialog-actions export-dialog-actions--single">
+          <button type="button" autoFocus onClick={() => aboutDialogRef.current?.close()}>Close</button>
+        </div>
+      </dialog>
+
+      {showStart && (
+        <div className="start-screen" role="dialog" aria-modal="true" aria-labelledby="start-title">
+          <div className="start-sheet">
+            <div className="section-title">
+              <h2 id="start-title">New poster</h2>
+              <span>f(g)=ma</span>
+            </div>
+            {savedSnapshot && (
+              <div className="start-continue">
+                <button type="button" autoFocus onClick={() => setShowStart(false)}>
+                  Continue — {currentPreset.label} {artboardSize.width}×{artboardSize.height}
+                </button>
+              </div>
+            )}
+            {ARTBOARD_PRESET_GROUPS.map((group) => (
+              <section className="start-group" key={group}>
+                <h3>{group}</h3>
+                <div className="start-grid">
+                  {START_CHOICES.filter((choice) => choice.preset.group === group).map((choice) => {
+                    const size = resolveArtboardSize(choice.preset.id, choice.orientation);
+                    const current = choice.preset.id === artboardPreset && choice.orientation === orientation;
+                    return (
+                      <button
+                        key={`${choice.preset.id}-${choice.orientation}`}
+                        type="button"
+                        className={`start-card ${current ? 'is-active' : ''}`}
+                        onClick={() => {
+                          changeArtboard(choice.preset.id, choice.orientation);
+                          setShowStart(false);
+                        }}
+                      >
+                        <span className="start-thumb" style={{ width: (64 * size.width) / Math.max(size.width, size.height), height: (64 * size.height) / Math.max(size.width, size.height) }} />
+                        <span>{choice.label}</span>
+                        <small>{size.width}×{size.height}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      )}
 
       <section
         className={`workspace ${spaceHeld ? 'is-space-panning' : ''} ${panning ? 'is-panning' : ''}`}

@@ -1,18 +1,40 @@
 import type { ArtboardSize, RenderSettings, TextLayer } from './types';
 import type { SoundSettings, ScaleId, WaveformId } from './audio/audioTypes';
 
-export type ArtboardPresetId = 'a4' | 'a3' | '4x5' | '1x1' | 'hd';
+export type ArtboardPresetId =
+  | 'a4' | 'a3'
+  | '4x5' | 'ig-3x4' | '1x1' | 'ig-landscape' | 'ig-story'
+  | 'hd';
 export type Orientation = 'portrait' | 'landscape';
 export type ViewZoom = 'fit' | number;
 export type PanPoint = { x: number; y: number };
 
-export const ARTBOARD_PRESETS: { id: ArtboardPresetId; label: string; width: number; height: number; defaultOrientation: Orientation }[] = [
-  { id: 'a4', label: 'A4', width: 1240, height: 1754, defaultOrientation: 'portrait' },
-  { id: 'a3', label: 'A3', width: 1754, height: 2480, defaultOrientation: 'portrait' },
-  { id: '4x5', label: '4:5', width: 1080, height: 1350, defaultOrientation: 'portrait' },
-  { id: '1x1', label: '1:1', width: 1080, height: 1080, defaultOrientation: 'portrait' },
-  { id: 'hd', label: '1920x1080', width: 1920, height: 1080, defaultOrientation: 'landscape' },
+export type ArtboardPresetGroup = 'Print' | 'Instagram' | 'Screen';
+
+export type ArtboardPreset = {
+  id: ArtboardPresetId;
+  group: ArtboardPresetGroup;
+  label: string;
+  width: number;
+  height: number;
+  defaultOrientation: Orientation;
+  /** Platform sizes are only valid in one orientation. */
+  lockOrientation?: boolean;
+};
+
+// Ids '4x5' and '1x1' are kept for autosaves made before the Instagram group existed.
+export const ARTBOARD_PRESETS: ArtboardPreset[] = [
+  { id: 'a4', group: 'Print', label: 'A4', width: 1240, height: 1754, defaultOrientation: 'portrait' },
+  { id: 'a3', group: 'Print', label: 'A3', width: 1754, height: 2480, defaultOrientation: 'portrait' },
+  { id: '4x5', group: 'Instagram', label: 'Feed 4:5', width: 1080, height: 1350, defaultOrientation: 'portrait', lockOrientation: true },
+  { id: 'ig-3x4', group: 'Instagram', label: 'Feed 3:4', width: 1080, height: 1440, defaultOrientation: 'portrait', lockOrientation: true },
+  { id: '1x1', group: 'Instagram', label: 'Square 1:1', width: 1080, height: 1080, defaultOrientation: 'portrait', lockOrientation: true },
+  { id: 'ig-landscape', group: 'Instagram', label: 'Landscape 1.91:1', width: 1080, height: 566, defaultOrientation: 'landscape', lockOrientation: true },
+  { id: 'ig-story', group: 'Instagram', label: 'Story / Reels 9:16', width: 1080, height: 1920, defaultOrientation: 'portrait', lockOrientation: true },
+  { id: 'hd', group: 'Screen', label: 'Full HD 16:9', width: 1920, height: 1080, defaultOrientation: 'landscape' },
 ];
+
+export const ARTBOARD_PRESET_GROUPS: ArtboardPresetGroup[] = ['Print', 'Instagram', 'Screen'];
 
 export function getArtboardPreset(presetId: ArtboardPresetId) {
   return ARTBOARD_PRESETS.find((item) => item.id === presetId) ?? ARTBOARD_PRESETS[0];
@@ -20,7 +42,7 @@ export function getArtboardPreset(presetId: ArtboardPresetId) {
 
 export function resolveArtboardSize(presetId: ArtboardPresetId, orientation: Orientation): ArtboardSize {
   const preset = getArtboardPreset(presetId);
-  if (preset.width === preset.height) return { width: preset.width, height: preset.height };
+  if (preset.width === preset.height || preset.lockOrientation) return { width: preset.width, height: preset.height };
 
   const short = Math.min(preset.width, preset.height);
   const long = Math.max(preset.width, preset.height);

@@ -38,6 +38,8 @@ export type RenderSettings = {
   showMasses: boolean;
   animate: boolean;
   motionAmount: number;
+  /** Render resolution relative to the 1x artboard; fixed pixel sizes in the shader scale by it. */
+  pixelScale?: number;
 };
 
 export type ArtboardSize = {

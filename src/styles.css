@@ -252,6 +252,213 @@ html.is-scrubbing * {
   font: inherit;
 }
 
+/* ── Export form ───────────────────────────────────────── */
+
+.form-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.form-table th {
+  width: 84px;
+  padding: 3px 8px 3px 0;
+  font-weight: normal;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.form-table th::after {
+  content: ":";
+}
+
+.form-table td {
+  padding: 3px 0;
+}
+
+.form-table select,
+.form-table input[type="text"] {
+  width: 100%;
+}
+
+.form-table input[type="number"] {
+  width: 64px;
+}
+
+.form-table-range {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.form-table-range input {
+  flex: 1;
+  min-width: 0;
+}
+
+.spec-list {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px dashed #999;
+}
+
+.spec-list div {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 8px;
+}
+
+.spec-list dt {
+  color: #666;
+}
+
+.spec-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── Panel footer / artboard info ─────────────────────── */
+
+.panel-footer {
+  display: grid;
+  padding: var(--pad);
+  border-top: 1px solid #999;
+}
+
+.artboard-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+/* ── Export dialog (native <dialog>) ───────────────────── */
+
+.export-dialog {
+  width: min(380px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid #999;
+  font-family: ui-monospace, Menlo, Consolas, "D2Coding", monospace;
+  font-size: 12px;
+}
+
+.export-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.export-dialog button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font: inherit;
+}
+
+.export-dialog select,
+.export-dialog input {
+  font: inherit;
+}
+
+.export-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--pad);
+}
+
+.export-dialog-actions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--gap);
+  padding: var(--pad);
+  border-top: 1px solid #999;
+}
+
+.export-dialog-actions--single {
+  grid-template-columns: 1fr;
+}
+
+.about-lead {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.export-dialog a {
+  color: inherit;
+}
+
+.panel-about {
+  margin-left: auto;
+}
+
+.export-dialog .is-ready,
+.export-dialog .is-active {
+  background: var(--selected);
+}
+
+/* ── Start screen ──────────────────────────────────────── */
+
+.start-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow-y: auto;
+  background: rgba(223, 224, 218, 0.92);
+}
+
+.start-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  width: min(640px, 100%);
+  padding: var(--pad);
+  border: 1px solid #999;
+  background: #fff;
+  font-family: ui-monospace, Menlo, Consolas, "D2Coding", monospace;
+  font-size: 12px;
+}
+
+.start-sheet button {
+  font: inherit;
+}
+
+.start-continue {
+  display: grid;
+}
+
+.start-group h3 {
+  margin: 0 0 6px;
+  font-size: inherit;
+}
+
+.start-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--gap);
+}
+
+.start-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 132px;
+  padding: 10px 6px 8px;
+}
+
+.start-card.is-active {
+  background: var(--selected);
+}
+
+.start-thumb {
+  flex-shrink: 0;
+  border: 1px solid #000;
+  background: #fff;
+}
+
 /* ── Help ──────────────────────────────────────────────── */
 
 .shortcut-list {
