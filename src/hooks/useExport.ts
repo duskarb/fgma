@@ -11,7 +11,7 @@ import { ARTBOARD_PRESETS, scaleLayersForSize } from "../appConfig";
 import { createPosterTexture } from "../rendering/posterTexture";
 import { renderScale, scaleRenderSettings } from "../rendering/scaleRenderSettings";
 import type { WebglPosterRenderer } from "../rendering/webglPosterRenderer";
-import type { SonificationEngine } from "../audio/SonificationEngine";
+import { SonificationEngine } from "../audio/SonificationEngine";
 import type { SoundSettings } from "../audio/audioTypes";
 import type { MotionAudioInput } from "../shared/motionFeatures";
 import { buildAudioLayerInfo } from "../shared/audioLayerInfo";
@@ -328,18 +328,22 @@ export function useExport({
 
     // Check audio encoding support
     let audioOpts: { sampleRate: number; channels: number } | undefined;
-    if (audioBuffer && typeof AudioEncoder !== "undefined") {
+    if (audioBuffer) {
+      if (typeof AudioEncoder === "undefined") {
+        throw new Error("This browser cannot encode AAC audio for MP4. Try Chrome or Edge.");
+      }
       const sup = await AudioEncoder.isConfigSupported({
         codec: "mp4a.40.2",
         sampleRate: audioBuffer.sampleRate,
         numberOfChannels: audioBuffer.numberOfChannels,
       });
-      if (sup.supported) {
-        audioOpts = {
-          sampleRate: audioBuffer.sampleRate,
-          channels: audioBuffer.numberOfChannels,
-        };
+      if (!sup.supported) {
+        throw new Error("This browser cannot encode AAC audio for MP4. Try Chrome or Edge.");
       }
+      audioOpts = {
+        sampleRate: audioBuffer.sampleRate,
+        channels: audioBuffer.numberOfChannels,
+      };
     }
 
     const worker = new Worker(
@@ -504,7 +508,8 @@ export function useExport({
 
   async function renderAudio(options: ExportOptions) {
     const tex = textureRef.current;
-    if (!options.includeSound || !tex) return null;
+    if (!options.includeSound) return null;
+    if (!tex) throw new Error("The artboard is not ready to render audio yet. Try exporting again.");
     const input: MotionAudioInput = {
       masses: tex.masses,
       massCount: tex.massCount,
@@ -533,17 +538,34 @@ export function useExport({
     ext: string,
     audioTrack?: MediaStreamTrack,
   ) {
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       const videoStream = canvas.captureStream(options.fps);
       const stream = audioTrack
         ? new MediaStream([...videoStream.getVideoTracks(), audioTrack])
         : videoStream;
       const recorder = new MediaRecorder(stream, { mimeType });
       const chunks: Blob[] = [];
+      let timer: number | undefined;
+      let failed = false;
+      const cleanup = () => {
+        if (timer !== undefined) window.clearTimeout(timer);
+        videoStream.getTracks().forEach((track) => track.stop());
+      };
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunks.push(event.data);
       };
+      recorder.onerror = () => {
+        failed = true;
+        cleanup();
+        reject(new Error("Video recording failed in this browser."));
+      };
       recorder.onstop = () => {
+        cleanup();
+        if (failed) return;
+        if (!chunks.length) {
+          reject(new Error("Video recording produced no data."));
+          return;
+        }
         downloadBlob(
           new Blob(chunks, { type: mimeType.split(";")[0] }),
           fileNameWithExt(options.fileName, ext),
@@ -551,68 +573,91 @@ export function useExport({
         resolve();
       };
       recorder.start();
-      window.setTimeout(() => recorder.stop(), options.durationSec * 1000);
+      timer = window.setTimeout(() => {
+        if (recorder.state !== "inactive") recorder.stop();
+      }, options.durationSec * 1000);
     });
   }
 
   async function exportMotion(options: ExportOptions) {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // Real-time capture records the live render loop, which always uses the
-    // 1x settings, so it can only run at 1x.
-    const scale = isRealtimeFormat(options.format) ? 1 : options.scale;
-    const size = exportSize(artboardSize, scale);
-    const renderSettings = scaleRenderSettings(settingsRef.current, scale);
-    await renderTargetAtSize(size, renderSettings);
+    // MediaRecorder needs a live audio stream. Start it while the export click
+    // still has user activation, before any asynchronous texture work.
+    let startedForExport: SonificationEngine | null = null;
+    let createdForExport = false;
+    try {
+      if (options.format === "mp4" && options.includeSound && !hasWebCodecs()) {
+        const engine = sonificationEngineRef.current ?? new SonificationEngine(soundSettings);
+        if (!sonificationEngineRef.current) {
+          sonificationEngineRef.current = engine;
+          createdForExport = true;
+        }
+        if (!engine.isRunning) {
+          startedForExport = engine;
+          engine.start();
+        }
+      }
+      // Real-time capture records the live render loop, which always uses the
+      // 1x settings, so it can only run at 1x.
+      const scale = isRealtimeFormat(options.format) ? 1 : options.scale;
+      const size = exportSize(artboardSize, scale);
+      const renderSettings = scaleRenderSettings(settingsRef.current, scale);
+      await renderTargetAtSize(size, renderSettings);
 
-    if (options.format === "gif") {
-      const buffer = await encodeGifWithWorker(canvas, renderSettings, options.fps, options.durationSec);
-      downloadBlob(new Blob([buffer], { type: "image/gif" }), fileNameWithExt(options.fileName, "gif"));
-      return;
-    }
+      if (options.format === "gif") {
+        const buffer = await encodeGifWithWorker(canvas, renderSettings, options.fps, options.durationSec);
+        downloadBlob(new Blob([buffer], { type: "image/gif" }), fileNameWithExt(options.fileName, "gif"));
+        return;
+      }
 
-    if (options.format === "webm") {
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-        ? "video/webm;codecs=vp9"
-        : "video/webm";
-      exportingRef.current = false;
-      await recordRealtime(canvas, mimeType, options, "webm");
-      return;
-    }
+      if (options.format === "webm") {
+        const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : "video/webm";
+        exportingRef.current = false;
+        await recordRealtime(canvas, mimeType, options, "webm");
+        return;
+      }
 
-    // MP4 path A: WebCodecs, frame-by-frame.
-    if (hasWebCodecs()) {
-      const audioBuffer = await renderAudio(options);
-      const buffer = await encodeMp4WithWorker(
-        canvas,
-        renderSettings,
-        options.fps,
-        options.durationSec,
-        audioBuffer ?? undefined,
-      );
-      downloadBlob(new Blob([buffer], { type: "video/mp4" }), fileNameWithExt(options.fileName, "mp4"));
-      return;
-    }
+      // MP4 path A: WebCodecs, frame-by-frame.
+      if (hasWebCodecs()) {
+        const audioBuffer = await renderAudio(options);
+        const buffer = await encodeMp4WithWorker(
+          canvas,
+          renderSettings,
+          options.fps,
+          options.durationSec,
+          audioBuffer ?? undefined,
+        );
+        downloadBlob(new Blob([buffer], { type: "video/mp4" }), fileNameWithExt(options.fileName, "mp4"));
+        return;
+      }
 
-    // MP4 path B: MediaRecorder fallback (Firefox, etc.)
-    const mp4Mime = [
-      "video/mp4;codecs=avc1",
-      "video/mp4;codecs=h264",
-      "video/mp4",
-    ].find((type) => MediaRecorder.isTypeSupported(type));
-    if (!mp4Mime) {
-      throw new Error("MP4 export is not supported in this browser. Try Chrome/Edge or export WEBM.");
-    }
-    let audioTrack: MediaStreamTrack | undefined;
-    if (options.includeSound) {
-      const engine = sonificationEngineRef.current;
-      if (engine) {
-        if (!engine.isRunning) engine.start();
+      // MP4 path B: MediaRecorder fallback (Firefox, etc.)
+      const mp4Mime = [
+        "video/mp4;codecs=avc1",
+        "video/mp4;codecs=h264",
+        "video/mp4",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      if (!mp4Mime) {
+        throw new Error("MP4 export is not supported in this browser. Try Chrome/Edge or export WEBM.");
+      }
+      let audioTrack: MediaStreamTrack | undefined;
+      if (options.includeSound) {
+        const engine = sonificationEngineRef.current;
+        if (!engine?.isRunning) throw new Error("Could not start audio capture for MP4.");
         audioTrack = engine.getCaptureStream().getAudioTracks()[0];
+        if (!audioTrack) throw new Error("Could not get an audio track for MP4.");
+      }
+      exportingRef.current = false;
+      await recordRealtime(canvas, mp4Mime, options, "mp4", audioTrack);
+    } finally {
+      startedForExport?.stop();
+      if (createdForExport && sonificationEngineRef.current === startedForExport) {
+        sonificationEngineRef.current = null;
       }
     }
-    exportingRef.current = false;
-    await recordRealtime(canvas, mp4Mime, options, "mp4", audioTrack);
   }
 
   /** Returns true when the file was produced. */

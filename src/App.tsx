@@ -817,16 +817,25 @@ export default function App() {
   }, [layers]);
 
   useEffect(() => {
-    if (!canvasRef.current || rendererRef.current) return;
-    try {
-      rendererRef.current = new WebglPosterRenderer(canvasRef.current);
-      rendererRef.current.setSize(previewRenderSize);
-      setWebglAvailable(true);
-    } catch {
+    if (!canvasRef.current || !webglAvailable) return;
+    const canvas = canvasRef.current;
+    const onContextLost = () => {
+      rendererRef.current = null;
       setWebglAvailable(false);
       setStatus('FLAT');
+    };
+    canvas.addEventListener('webglcontextlost', onContextLost);
+    if (!rendererRef.current) {
+      try {
+        rendererRef.current = new WebglPosterRenderer(canvas);
+        rendererRef.current.setSize(previewRenderSize);
+      } catch {
+        setWebglAvailable(false);
+        setStatus('FLAT');
+      }
     }
-  }, [previewRenderSize]);
+    return () => canvas.removeEventListener('webglcontextlost', onContextLost);
+  }, [previewRenderSize, webglAvailable]);
 
   useEffect(() => {
     rendererRef.current?.setSize(previewRenderSize);
@@ -865,7 +874,7 @@ export default function App() {
       }
     });
     return () => { cancelled = true; };
-  }, [layers, bgColor, artboardSize, previewRenderSize, editingId]);
+  }, [layers, bgColor, artboardSize, previewRenderSize, editingId, webglAvailable]);
 
   useEffect(() => {
     const engine = sonificationEngineRef.current;
@@ -2377,7 +2386,7 @@ export default function App() {
               width: stageDisplayWidth,
             }}
           >
-            <canvas ref={canvasRef} width={previewRenderSize.width} height={previewRenderSize.height} />
+            <canvas key={webglAvailable ? 'webgl' : 'flat'} ref={canvasRef} width={previewRenderSize.width} height={previewRenderSize.height} />
             <div
               className="interaction-layer"
               style={{
