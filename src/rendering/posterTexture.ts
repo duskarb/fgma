@@ -11,7 +11,7 @@ import {
 
 export { POSTER_HEIGHT, POSTER_WIDTH } from './massConfig';
 
-const textureCanvas = document.createElement('canvas');
+const measurementCanvas = document.createElement('canvas');
 const maskCanvas = document.createElement('canvas');
 
 function resizeCanvas(canvas: HTMLCanvasElement, size: ArtboardSize) {
@@ -90,7 +90,7 @@ function layerHeight(layer: TextLayer, ctx: CanvasRenderingContext2D) {
 }
 
 export function estimateLayerBounds(layer: TextLayer) {
-  const ctx = textureCanvas.getContext('2d')!;
+  const ctx = measurementCanvas.getContext('2d')!;
   return {
     x: layer.x,
     y: layer.y,
@@ -239,6 +239,9 @@ export async function createPosterTexture(
 ): Promise<PosterTexture> {
   await document.fonts.ready;
 
+  // Each result keeps its own canvas. Preview and export can request textures
+  // close together, and reusing one canvas would mutate a pending result.
+  const textureCanvas = document.createElement('canvas');
   resizeCanvas(textureCanvas, size);
   const ctx = textureCanvas.getContext('2d', { willReadFrequently: true })!;
   ctx.clearRect(0, 0, size.width, size.height);

@@ -2,13 +2,15 @@
   box-sizing: border-box;
 }
 
-/* Panel uses native browser controls. CSS here only does layout,
-   the section bars, and one "selected" state (green). */
+/* Keep browser controls native; use quiet colors and one corner radius for
+   the custom interface. */
 
 :root {
   --gap: 4px;
   --pad: 12px;
-  --selected: #3f3;
+  --selected: #e6e6e6;
+  --selection-stroke: #333;
+  --ui-radius: 2px;
   --pasteboard-padding: clamp(64px, 10vw, 160px);
 
   background: #dfe0da;
@@ -36,6 +38,7 @@ body {
   min-height: 0;
   max-height: calc(100vh - 2 * var(--pad));
   border: 1px solid #999;
+  border-radius: var(--ui-radius);
   background: #fff;
   font-family: ui-monospace, Menlo, Consolas, "D2Coding", monospace;
   font-size: 12px;
@@ -63,7 +66,7 @@ body {
   height: 24px;
   padding: 0 8px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--ui-radius);
   background: none;
   color: #000;
   cursor: pointer;
@@ -160,10 +163,9 @@ body {
   white-space: nowrap;
 }
 
-/* The only custom state: selected / ready = green. */
+/* Selection stays visible without a bright accent. */
 .panel .is-active:not(.panel-tab),
 .panel .layer-row.is-active .layer-select,
-.panel .is-ready,
 .live-badge.is-live {
   background: var(--selected);
 }
@@ -228,7 +230,7 @@ body {
   min-width: 0;
   padding: 2px 4px;
   border: 1px solid #767676;
-  border-radius: 2px;
+  border-radius: var(--ui-radius);
   cursor: ew-resize;
   user-select: none;
   touch-action: none;
@@ -351,6 +353,7 @@ html.is-scrubbing * {
   width: min(380px, calc(100vw - 32px));
   padding: 0;
   border: 1px solid #999;
+  border-radius: var(--ui-radius);
   font-family: ui-monospace, Menlo, Consolas, "D2Coding", monospace;
   font-size: 12px;
 }
@@ -404,7 +407,6 @@ html.is-scrubbing * {
   margin-left: auto;
 }
 
-.export-dialog .is-ready,
 .export-dialog .is-active {
   background: var(--selected);
 }
@@ -429,6 +431,7 @@ html.is-scrubbing * {
   width: min(640px, 100%);
   padding: var(--pad);
   border: 1px solid #999;
+  border-radius: var(--ui-radius);
   background: #fff;
   font-family: ui-monospace, Menlo, Consolas, "D2Coding", monospace;
   font-size: 12px;
@@ -461,6 +464,7 @@ html.is-scrubbing * {
   gap: 4px;
   min-height: 132px;
   padding: 10px 6px 8px;
+  border-radius: var(--ui-radius);
 }
 
 .start-card.is-active {
@@ -527,7 +531,7 @@ html.is-scrubbing * {
   min-height: 32px;
   padding: 0 12px;
   border: 1px solid rgba(17, 17, 17, 0.12);
-  border-radius: 999px;
+  border-radius: var(--ui-radius);
   background: rgba(248, 248, 245, 0.94);
   color: #222;
   font-size: 11px;
@@ -550,7 +554,7 @@ html.is-scrubbing * {
   border: 1px solid #d2b568;
   background: #fff7db;
   color: #70520a;
-  border-radius: 4px;
+  border-radius: var(--ui-radius);
   font-size: 11px;
   font-weight: 750;
 }
@@ -583,26 +587,32 @@ html.is-scrubbing * {
   transform-origin: left top;
 }
 
+.marquee-rect {
+  border: 1px solid var(--selection-stroke);
+  border-radius: var(--ui-radius);
+  background: rgba(0, 0, 0, 0.06);
+}
+
 .layer-hitbox {
   position: absolute;
   min-height: 12px;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
-  color: #0d99ff;
+  color: var(--selection-stroke);
   cursor: move;
   text-transform: none;
-  border-radius: 0;
+  border-radius: var(--ui-radius);
 }
 
 .layer-hitbox:hover {
   border-style: dashed;
-  border-color: rgba(13, 153, 255, 0.5);
+  border-color: var(--selection-stroke);
 }
 
 .layer-hitbox.is-selected {
-  border: 1px solid #0d99ff;
-  background: rgba(13, 153, 255, 0.04);
+  border: 1px solid var(--selection-stroke);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .layer-hitbox.is-locked {
@@ -612,8 +622,8 @@ html.is-scrubbing * {
 }
 
 .layer-hitbox.is-locked.is-selected {
-  border-color: rgba(13, 153, 255, 0.55);
-  background: rgba(13, 153, 255, 0.025);
+  border-color: var(--selection-stroke);
+  background: rgba(0, 0, 0, 0.025);
 }
 
 .layer-editor,
@@ -625,7 +635,7 @@ html.is-scrubbing * {
   font-family: Pretendard, Helvetica, Arial, sans-serif;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  border-radius: 0;
+  border-radius: var(--ui-radius);
 }
 
 .layer-editor-preview {
@@ -636,14 +646,14 @@ html.is-scrubbing * {
 .layer-editor {
   z-index: 4;
   resize: none;
-  border: 1.5px solid #0d99ff;
+  border: 1.5px solid var(--selection-stroke);
   background: rgba(255, 255, 255, 0.08);
   outline: none;
 }
 
 .layer-editor::selection {
   color: transparent;
-  background: rgba(13, 153, 255, 0.22);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 /* ── Rotation handles ──────────────────────────────────── */
@@ -656,8 +666,8 @@ html.is-scrubbing * {
 
 .resize-handle {
   background: #fff;
-  border: 1.5px solid #0d99ff;
-  border-radius: 1px;
+  border: 1.5px solid var(--selection-stroke);
+  border-radius: var(--ui-radius);
   z-index: 10;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
