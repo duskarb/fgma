@@ -702,7 +702,6 @@ export default function App() {
   const previewWarpRef = useRef(true);
   const editingIdRef = useRef<string | null>(null);
   const artboardSizeRef = useRef<ArtboardSize>({ width: 1, height: 1 });
-  const draggingRef = useRef(false);
   const {
     layers,
     setLayers,
@@ -725,8 +724,6 @@ export default function App() {
   const [status, setStatus] = useState('LIVE');
   const [webglAvailable, setWebglAvailable] = useState(true);
   const [previewWarp, setPreviewWarp] = useState(false);
-  const [needsRender, setNeedsRender] = useState(true);
-  const hasRenderedRef = useRef(false);
   const exportingRef = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingSel, setEditingSel] = useState<{ start: number; end: number } | null>(null);
@@ -808,7 +805,6 @@ export default function App() {
   previewWarpRef.current = previewWarp;
   editingIdRef.current = editingId;
   artboardSizeRef.current = artboardSize;
-  draggingRef.current = draggingId !== null;
   editorSnapshotRef.current = { layers, selectedId, selectedIds, bgColor, artboardPreset, orientation, settings };
   useAutosave({ layers, selectedId, selectedIds, bgColor, artboardPreset, orientation, settings });
 
@@ -889,7 +885,7 @@ export default function App() {
     const tick = () => {
       if (!exportingRef.current && rendererRef.current) {
         const time = (performance.now() - started) / 1000;
-        const flat = !previewWarpRef.current || editingIdRef.current !== null || draggingRef.current;
+        const flat = !previewWarpRef.current || editingIdRef.current !== null;
         // Scale from the canvas's actual size, so real-time export at 1x also renders correctly.
         const scale = canvasRef.current
           ? renderScale(canvasRef.current, artboardSizeRef.current)
@@ -938,11 +934,6 @@ export default function App() {
   useEffect(() => {
     return () => { sonificationEngineRef.current?.dispose(); };
   }, []);
-
-  useEffect(() => {
-    setNeedsRender(true);
-    if (hasRenderedRef.current) setPreviewWarp(false);
-  }, [layers, bgColor, artboardSize]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -1201,8 +1192,6 @@ export default function App() {
     setSettings(snapshot.settings);
     setEditingId(null);
     setDraggingId(null);
-    setPreviewWarp(false);
-    setNeedsRender(true);
   }
 
   function undo() {
@@ -1272,9 +1261,7 @@ export default function App() {
   }
 
   function handleRender() {
-    hasRenderedRef.current = true;
-    setNeedsRender(false);
-    setPreviewWarp(true);
+    setPreviewWarp((current) => !current);
   }
 
   function patchSelected(patch: Partial<TextLayer>, recordHistory = true) {
@@ -2038,9 +2025,9 @@ export default function App() {
                     Mass points
                   </label>
                 </div>
-                <button className={`primary-action ${needsRender ? 'is-ready' : ''}`} type="button" onClick={handleRender}>
+                <button className="primary-action" type="button" aria-pressed={previewWarp} onClick={handleRender}>
                   <Sparkles size={14} />
-                  Render
+                  {previewWarp ? 'Stop live render' : 'Render live'}
                 </button>
               </section>
             </>
