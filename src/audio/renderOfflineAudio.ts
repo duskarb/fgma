@@ -10,10 +10,12 @@ const BLOCK_SIZE = 128; // audio frames per feature step
 export async function renderOfflineAudio(
   input: MotionAudioInput,
   settings: SoundSettings,
+  onProgress?: (stage: string) => void,
 ): Promise<AudioBuffer> {
   const totalSamples = Math.ceil(SAMPLE_RATE * input.durationSec);
   const ctx = new OfflineAudioContext(2, totalSamples, SAMPLE_RATE);
 
+  onProgress?.('AUDIO GRAPH…');
   const graph = buildSynthGraph(ctx, settings);
   graph.connect(ctx.destination);
 
@@ -27,6 +29,7 @@ export async function renderOfflineAudio(
     graph.update(features, t);
   }
 
+  onProgress?.('AUDIO RENDER…');
   const buffer = await ctx.startRendering();
   return buffer;
 }

@@ -65,9 +65,16 @@ function hasWebCodecs() {
   return typeof VideoEncoder !== "undefined" && typeof VideoFrame !== "undefined";
 }
 
+function useRealtimeMp4(includeSound: boolean) {
+  // Safari exposes WebCodecs, but its OfflineAudioContext can leave
+  // startRendering() pending with this synth graph. Capture the live graph.
+  const safari = /Safari\//.test(navigator.userAgent) && !/Chrome\/|Chromium\/|CriOS\/|Edg\//.test(navigator.userAgent);
+  return !hasWebCodecs() || (includeSound && safari);
+}
+
 /** Formats recorded in real time from the live canvas (no frame-by-frame encode). */
-export function isRealtimeFormat(format: ExportFormat) {
-  return format === "webm" || (format === "mp4" && !hasWebCodecs());
+export function isRealtimeFormat(format: ExportFormat, includeSound = false) {
+  return format === "webm" || (format === "mp4" && useRealtimeMp4(includeSound));
 }
 
 export function exportSize(size: ArtboardSize, scale: number): ArtboardSize {
@@ -527,7 +534,7 @@ export function useExport({
       layersInfo: buildAudioLayerInfo(layers, artboardSize),
     };
     setStatus("AUDIO…");
-    return renderOfflineAudio(input, soundSettings);
+    return renderOfflineAudio(input, soundSettings, setStatus);
   }
 
   /** Real-time capture through MediaRecorder; resolves when the file is saved. */
@@ -546,9 +553,11 @@ export function useExport({
       const recorder = new MediaRecorder(stream, { mimeType });
       const chunks: Blob[] = [];
       let timer: number | undefined;
+      let watchdog: number | undefined;
       let failed = false;
       const cleanup = () => {
         if (timer !== undefined) window.clearTimeout(timer);
+        if (watchdog !== undefined) window.clearTimeout(watchdog);
         videoStream.getTracks().forEach((track) => track.stop());
       };
       recorder.ondataavailable = (event) => {
@@ -574,8 +583,21 @@ export function useExport({
       };
       recorder.start();
       timer = window.setTimeout(() => {
-        if (recorder.state !== "inactive") recorder.stop();
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch (error) {
+            failed = true;
+            cleanup();
+            reject(error);
+          }
+        }
       }, options.durationSec * 1000);
+      watchdog = window.setTimeout(() => {
+        failed = true;
+        cleanup();
+        reject(new Error("Recording did not finish. Try a shorter duration or another browser."));
+      }, options.durationSec * 1000 + 15_000);
     });
   }
 
@@ -587,7 +609,7 @@ export function useExport({
     let startedForExport: SonificationEngine | null = null;
     let createdForExport = false;
     try {
-      if (options.format === "mp4" && options.includeSound && !hasWebCodecs()) {
+      if (options.format === "mp4" && options.includeSound && useRealtimeMp4(true)) {
         const engine = sonificationEngineRef.current ?? new SonificationEngine(soundSettings);
         if (!sonificationEngineRef.current) {
           sonificationEngineRef.current = engine;
@@ -600,7 +622,7 @@ export function useExport({
       }
       // Real-time capture records the live render loop, which always uses the
       // 1x settings, so it can only run at 1x.
-      const scale = isRealtimeFormat(options.format) ? 1 : options.scale;
+      const scale = isRealtimeFormat(options.format, options.includeSound) ? 1 : options.scale;
       const size = exportSize(artboardSize, scale);
       const renderSettings = scaleRenderSettings(settingsRef.current, scale);
       await renderTargetAtSize(size, renderSettings);
@@ -621,7 +643,7 @@ export function useExport({
       }
 
       // MP4 path A: WebCodecs, frame-by-frame.
-      if (hasWebCodecs()) {
+      if (!useRealtimeMp4(options.includeSound)) {
         const audioBuffer = await renderAudio(options);
         const buffer = await encodeMp4WithWorker(
           canvas,
@@ -651,6 +673,7 @@ export function useExport({
         if (!audioTrack) throw new Error("Could not get an audio track for MP4.");
       }
       exportingRef.current = false;
+      setStatus("RECORDING");
       await recordRealtime(canvas, mp4Mime, options, "mp4", audioTrack);
     } finally {
       startedForExport?.stop();

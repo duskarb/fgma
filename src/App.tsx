@@ -114,7 +114,7 @@ function withExportFormat(options: ExportOptions, format: ExportFormat): ExportO
   const fps = fpsList.includes(options.fps)
     ? options.fps
     : fpsList.reduce((best, f) => (Math.abs(f - options.fps) < Math.abs(best - options.fps) ? f : best));
-  return { ...options, format, fps, scale: isRealtimeFormat(format) ? 1 : options.scale };
+  return { ...options, format, fps, scale: isRealtimeFormat(format, options.includeSound) ? 1 : options.scale };
 }
 
 // Print sizes can be either orientation; platform sizes are fixed.
@@ -791,7 +791,7 @@ export default function App() {
   const currentPreset = getArtboardPreset(artboardPreset);
   const exportIsMotion = isMotionFormat(exportOptions.format);
   // Fall back to the largest scale that fits when the artboard grows past the limit.
-  const exportScale = isRealtimeFormat(exportOptions.format)
+  const exportScale = isRealtimeFormat(exportOptions.format, exportOptions.includeSound)
     ? 1
     : Math.max(0.5, ...EXPORT_SCALES.filter((scale) => (
       scale <= exportOptions.scale
@@ -2162,7 +2162,7 @@ export default function App() {
                     <select
                       id="export-scale"
                       value={exportScale}
-                      disabled={isRealtimeFormat(exportOptions.format)}
+                      disabled={isRealtimeFormat(exportOptions.format, exportOptions.includeSound)}
                       onChange={(e) => setExportOptions((o) => ({ ...o, scale: Number(e.target.value) }))}
                     >
                       {EXPORT_SCALES.map((scale) => {
@@ -2260,7 +2260,7 @@ export default function App() {
               <div><dt>Pixels</dt><dd>{exportTarget.width} × {exportTarget.height}</dd></div>
               {exportOptions.format === 'pdf' && <div><dt>Page</dt><dd>{currentPreset.group === 'Print' ? currentPreset.label : `${Math.round(artboardSize.width * 0.264583)} × ${Math.round(artboardSize.height * 0.264583)} mm`}</dd></div>}
               {exportIsMotion && <div><dt>Frames</dt><dd>{Math.round(exportOptions.fps * exportOptions.durationSec)} @ {exportOptions.fps} fps</dd></div>}
-              {isRealtimeFormat(exportOptions.format) && <div><dt>Note</dt><dd>Recorded in real time ({exportOptions.durationSec}s), 1x only</dd></div>}
+              {isRealtimeFormat(exportOptions.format, exportOptions.includeSound) && <div><dt>Note</dt><dd>Recorded in real time ({exportOptions.durationSec}s), 1x only</dd></div>}
             </dl>
         </div>
         <div className="export-dialog-actions">
