@@ -59,6 +59,24 @@ import { buildAudioLayerInfo } from './shared/audioLayerInfo';
 
 type HistoryFeedback = 'Undo' | 'Redo' | null;
 
+type PanelTab = 'draw' | 'warp' | 'sound' | 'export' | 'help';
+
+const PANEL_TABS: { id: PanelTab; label: string }[] = [
+  { id: 'draw', label: 'Draw' },
+  { id: 'warp', label: 'Warp' },
+  { id: 'sound', label: 'Sound' },
+  { id: 'export', label: 'Export' },
+  { id: 'help', label: 'Help' },
+];
+
+const SHORTCUTS: { group: string; items: [string, string][] }[] = [
+  { group: 'Select', items: [['Click', 'Select layer'], ['Shift+Click', 'Toggle in selection'], ['Cmd/Ctrl+A', 'Select all unlocked']] },
+  { group: 'Edit', items: [['Double-click empty', 'Add text'], ['Double-click text', 'Edit text'], ['Cmd/Ctrl+D', 'Duplicate'], ['Alt+Drag', 'Duplicate while dragging'], ['Backspace', 'Delete'], ['Cmd/Ctrl+C / V', 'Copy / paste']] },
+  { group: 'Move', items: [['Arrow keys', 'Nudge 1px'], ['Shift+Arrow', 'Nudge 10px'], ['Shift+Drag', 'Lock axis / snap 15°'], ['[ / ]', 'Send to back / bring to front'], ['Cmd/Ctrl+[ / ]', 'Move backward / forward']] },
+  { group: 'View', items: [['Space+Drag / Wheel', 'Pan canvas'], ['Ctrl+Wheel / Pinch', 'Zoom']] },
+  { group: 'History', items: [['Cmd/Ctrl+Z', 'Undo'], ['Cmd/Ctrl+Shift+Z', 'Redo']] },
+];
+
 function zoomLabel(zoom: ViewZoom, resolvedZoom: number) {
   return zoom === 'fit' ? 'Fit' : `${Math.round(resolvedZoom * 100)}%`;
 }
@@ -646,6 +664,7 @@ export default function App() {
   const [editingSel, setEditingSel] = useState<{ start: number; end: number } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [panelTab, setPanelTab] = useState<PanelTab>('draw');
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(initialSoundSettings);
   const soundSettingsRef = useRef<SoundSettings>(initialSoundSettings);
   const [includeSoundInMp4, setIncludeSoundInMp4] = useState(false);
@@ -1696,288 +1715,343 @@ export default function App() {
   return (
     <main className="app-shell">
       <aside className="panel">
+        <nav className="panel-tabs" role="tablist">
+          {PANEL_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={panelTab === tab.id}
+              className={`panel-tab ${panelTab === tab.id ? 'is-active' : ''}`}
+              onClick={() => setPanelTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
         <div className="panel-scroll">
-          {/* Artboard */}
-          <section className="section">
-            <div className="section-title">
-              <h2>Artboard</h2>
-              <span>{artboardSize.width} × {artboardSize.height}</span>
-            </div>
-            <div className="prop-group">
-              <div className="prop-group-label">Size</div>
-              <div className="control-row control-row--fill-auto">
-                <select
-                  className="select"
-                  value={artboardPreset}
-                  onChange={(event) => changeArtboard(event.target.value as ArtboardPresetId)}
-                >
-                  {ARTBOARD_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>{preset.label}</option>
-                  ))}
-                </select>
-                <button type="button" onClick={rotateArtboard} title="Rotate artboard">
-                  <RotateCw size={13} />
-                  {orientation === 'portrait' ? 'Port' : 'Land'}
-                </button>
-              </div>
-            </div>
-            <div className="prop-group">
-              <div className="prop-group-label">Background</div>
-              <ColorInput label="Background color" value={bgColor} onChangeStart={pushUndoSnapshot} onChange={setBgColor} />
-            </div>
-          </section>
-
-          {/* View */}
-          <section className="section">
-            <div className="section-title">
-              <h2>View</h2>
-            </div>
-            <div className="control-row control-row--zoom">
-              <IconButton label="Zoom out" onClick={() => stepZoom(-1)}><Minus size={14} /></IconButton>
-              <button type="button" onClick={() => { setViewZoom('fit'); setViewPan({ x: 0, y: 0 }); }} title="Fit to screen">
-                <Maximize2 size={13} />
-                {zoomLabel(viewZoom, resolvedViewZoom)}
-              </button>
-              <IconButton label="Zoom in" onClick={() => stepZoom(1)}><Plus size={14} /></IconButton>
-            </div>
-          </section>
-
-          {/* Layers */}
-          <section className="section">
-            <div className="section-title">
-              <h2>Layers</h2>
-              <span>{layers.length}</span>
-            </div>
-            <div className="layer-list">
-              {[...layers].reverse().map((layer) => (
-                <div
-                  key={layer.id}
-                  className={`layer-row ${selectedIds.includes(layer.id) ? 'is-active' : ''}`}
-                >
-                  <button
-                    className="layer-select"
-                    type="button"
-                    onClick={() => { selectOne(layer.id); setEditingId(null); }}
-                  >
-                    <Type size={12} className="layer-icon" />
-                    <span>{shortLayerName(layer)}</span>
-                    <small>{Math.round(layer.fontSize)}</small>
-                  </button>
-                  <button
-                    className="icon-button layer-lock"
-                    type="button"
-                    title={layer.locked ? 'Unlock layer' : 'Lock layer'}
-                    onClick={() => toggleLayerLock(layer.id)}
-                  >
-                    {layer.locked ? <Lock size={12} /> : <LockOpen size={12} />}
-                  </button>
+          {panelTab === 'draw' && (
+            <>
+              {/* Artboard */}
+              <section className="section">
+                <div className="section-title">
+                  <h2>Artboard</h2>
+                  <span>{artboardSize.width} × {artboardSize.height}</span>
                 </div>
-              ))}
-            </div>
-            <div className="prop-group">
-              <div className="prop-group-label">Arrange</div>
-              <div className="control-row control-row--4">
-                <button type="button" title="Duplicate (⌘D)" onClick={duplicateSelected} disabled={!hasUnlockedSelection}><Copy size={13} />Copy</button>
-                <button type="button" title="Delete (⌫)" onClick={deleteSelected} disabled={!hasUnlockedSelection}><Trash2 size={13} />Delete</button>
-                <button type="button" title="Send backward" onClick={() => moveLayer(-1)} disabled={!hasUnlockedSelection}><SendToBack size={13} />Back</button>
-                <button type="button" title="Bring forward" onClick={() => moveLayer(1)} disabled={!hasUnlockedSelection}><BringToFront size={13} />Front</button>
-              </div>
-            </div>
-            <div className="prop-group">
-              <div className="prop-group-label">Align</div>
-              <div className="control-row control-row--6">
-                <IconButton label="Align layer left" onClick={() => alignSelected('left')} disabled={selectedIds.length === 0}><AlignStartVertical size={14} /></IconButton>
-                <IconButton label="Align layer center" onClick={() => alignSelected('center-x')} disabled={selectedIds.length === 0}><AlignCenterVertical size={14} /></IconButton>
-                <IconButton label="Align layer right" onClick={() => alignSelected('right')} disabled={selectedIds.length === 0}><AlignEndVertical size={14} /></IconButton>
-                <IconButton label="Align layer top" onClick={() => alignSelected('top')} disabled={selectedIds.length === 0}><AlignStartHorizontal size={14} /></IconButton>
-                <IconButton label="Align layer middle" onClick={() => alignSelected('center-y')} disabled={selectedIds.length === 0}><AlignCenterHorizontal size={14} /></IconButton>
-                <IconButton label="Align layer bottom" onClick={() => alignSelected('bottom')} disabled={selectedIds.length === 0}><AlignEndHorizontal size={14} /></IconButton>
-              </div>
-            </div>
-          </section>
-
-          {/* Text layer properties */}
-          {selectedLayer && !selectedLayer.locked && (
-            <section className="section">
-              <div className="section-title">
-                <h2>Text</h2>
-              </div>
-
-              <div className="prop-group">
-                <div className="prop-group-label">Transform</div>
-                <div className="control-row control-row--2">
-                  <ScrubInput label="X" value={Math.round(selectedLayer.x)} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ x: v }, false)} step={1} />
-                  <ScrubInput label="Y" value={Math.round(selectedLayer.y)} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ y: v }, false)} step={1} />
-                  <ScrubInput label="W" value={Math.round(selectedLayer.width)} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ width: Math.max(40, v) }, false)} step={1} min={40} />
-                  <ScrubInput label="R" value={selectedLayer.rotation ?? 0} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ rotation: v }, false)} step={0.5} min={-360} max={360} decimals={1} suffix="°" />
+                <div className="prop-group">
+                  <div className="prop-group-label">Size</div>
+                  <div className="control-row control-row--fill-auto">
+                    <select
+                      className="select"
+                      value={artboardPreset}
+                      onChange={(event) => changeArtboard(event.target.value as ArtboardPresetId)}
+                    >
+                      {ARTBOARD_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{preset.label}</option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={rotateArtboard} title="Rotate artboard">
+                      <RotateCw size={13} />
+                      {orientation === 'portrait' ? 'Port' : 'Land'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+                <div className="prop-group">
+                  <div className="prop-group-label">Background</div>
+                  <ColorInput label="Background color" value={bgColor} onChangeStart={pushUndoSnapshot} onChange={setBgColor} />
+                </div>
+              </section>
 
-              <div className="prop-group">
-                <div className="prop-group-label">Font{selStyle?.fontFamily === null ? ' · mixed' : ''}</div>
-                <div className="font-picker">
-                  {[
-                    { label: 'Korean', korean: true, fallback: "'Apple SD Gothic Neo', sans-serif" },
-                    { label: 'Latin', korean: false, fallback: 'Helvetica, Arial, sans-serif' },
-                  ].map((group) => (
-                    <div className="font-picker-group" key={group.label}>
-                      <div className="font-group-label">{group.label}</div>
-                      <div className="font-grid">
-                        {FONTS.filter((f) => !!f.korean === group.korean).map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            className={`font-item${(selStyle ? selStyle.fontFamily : selectedLayer.fontFamily) === f.id ? ' is-active' : ''}`}
-                            style={{ fontFamily: `'${f.id}', ${group.fallback}` }}
-                            onPointerDown={(event) => event.preventDefault()}
-                            onClick={() => patchSelectionSpan({ fontFamily: f.id }, { fontFamily: f.id })}
-                            title={f.label}
-                          >
-                            {f.label}
-                          </button>
-                        ))}
-                      </div>
+              {/* View */}
+              <section className="section">
+                <div className="section-title">
+                  <h2>View</h2>
+                </div>
+                <div className="control-row control-row--zoom">
+                  <IconButton label="Zoom out" onClick={() => stepZoom(-1)}><Minus size={14} /></IconButton>
+                  <button type="button" onClick={() => { setViewZoom('fit'); setViewPan({ x: 0, y: 0 }); }} title="Fit to screen">
+                    <Maximize2 size={13} />
+                    {zoomLabel(viewZoom, resolvedViewZoom)}
+                  </button>
+                  <IconButton label="Zoom in" onClick={() => stepZoom(1)}><Plus size={14} /></IconButton>
+                </div>
+              </section>
+
+              {/* Layers */}
+              <section className="section">
+                <div className="section-title">
+                  <h2>Layers</h2>
+                  <span>{layers.length}</span>
+                </div>
+                <div className="layer-list">
+                  {[...layers].reverse().map((layer) => (
+                    <div
+                      key={layer.id}
+                      className={`layer-row ${selectedIds.includes(layer.id) ? 'is-active' : ''}`}
+                    >
+                      <button
+                        className="layer-select"
+                        type="button"
+                        onClick={() => { selectOne(layer.id); setEditingId(null); }}
+                      >
+                        <Type size={12} className="layer-icon" />
+                        <span>{shortLayerName(layer)}</span>
+                        <small>{Math.round(layer.fontSize)}</small>
+                      </button>
+                      <button
+                        className="icon-button layer-lock"
+                        type="button"
+                        title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+                        onClick={() => toggleLayerLock(layer.id)}
+                      >
+                        {layer.locked ? <Lock size={12} /> : <LockOpen size={12} />}
+                      </button>
                     </div>
                   ))}
                 </div>
-              </div>
+                <div className="prop-group">
+                  <div className="prop-group-label">Arrange</div>
+                  <div className="control-row control-row--4">
+                    <button type="button" title="Duplicate (⌘D)" onClick={duplicateSelected} disabled={!hasUnlockedSelection}><Copy size={13} />Copy</button>
+                    <button type="button" title="Delete (⌫)" onClick={deleteSelected} disabled={!hasUnlockedSelection}><Trash2 size={13} />Delete</button>
+                    <button type="button" title="Send backward" onClick={() => moveLayer(-1)} disabled={!hasUnlockedSelection}><SendToBack size={13} />Back</button>
+                    <button type="button" title="Bring forward" onClick={() => moveLayer(1)} disabled={!hasUnlockedSelection}><BringToFront size={13} />Front</button>
+                  </div>
+                </div>
+                <div className="prop-group">
+                  <div className="prop-group-label">Align</div>
+                  <div className="control-row control-row--6">
+                    <IconButton label="Align layer left" onClick={() => alignSelected('left')} disabled={selectedIds.length === 0}><AlignStartVertical size={14} /></IconButton>
+                    <IconButton label="Align layer center" onClick={() => alignSelected('center-x')} disabled={selectedIds.length === 0}><AlignCenterVertical size={14} /></IconButton>
+                    <IconButton label="Align layer right" onClick={() => alignSelected('right')} disabled={selectedIds.length === 0}><AlignEndVertical size={14} /></IconButton>
+                    <IconButton label="Align layer top" onClick={() => alignSelected('top')} disabled={selectedIds.length === 0}><AlignStartHorizontal size={14} /></IconButton>
+                    <IconButton label="Align layer middle" onClick={() => alignSelected('center-y')} disabled={selectedIds.length === 0}><AlignCenterHorizontal size={14} /></IconButton>
+                    <IconButton label="Align layer bottom" onClick={() => alignSelected('bottom')} disabled={selectedIds.length === 0}><AlignEndHorizontal size={14} /></IconButton>
+                  </div>
+                </div>
+              </section>
 
-              <div className="prop-group">
-                <div className="prop-group-label">Typography</div>
-                <div className="control-row control-row--2">
-                  <ScrubInput label="Size" value={selStyle ? selStyle.fontSize : selectedLayer.fontSize} mixedFallback={selectedLayer.fontSize} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ fontSize: clamp(v, 8, 400) }, { fontSize: clamp(v, 8, 400) }, false)} step={1} min={8} max={400} />
-                  <ScrubInput label="Wt" value={selStyle ? selStyle.fontWeight : selectedLayer.fontWeight} mixedFallback={selectedLayer.fontWeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, { fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, false)} step={5} min={100} max={950} decimals={0} />
-                  <ScrubInput label="Line" value={selectedLayer.lineHeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ lineHeight: clamp(v, 0.5, 3) }, false)} step={0.005} min={0.5} max={3} decimals={2} />
-                  <ScrubInput label="Track" value={selStyle ? selStyle.letterSpacing : selectedLayer.letterSpacing} mixedFallback={selectedLayer.letterSpacing} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ letterSpacing: clamp(v, -20, 50) }, { letterSpacing: clamp(v, -20, 50) }, false)} step={0.05} min={-20} max={50} decimals={1} />
-                </div>
-                <div className="control-row control-row--3">
-                  <IconButton label="Align left" active={selectedLayer.align === 'left'} onClick={() => patchSelected({ align: 'left' })}><AlignLeft size={14} /></IconButton>
-                  <IconButton label="Align center" active={selectedLayer.align === 'center'} onClick={() => patchSelected({ align: 'center' })}><AlignCenter size={14} /></IconButton>
-                  <IconButton label="Align right" active={selectedLayer.align === 'right'} onClick={() => patchSelected({ align: 'right' })}><AlignRight size={14} /></IconButton>
-                </div>
-              </div>
+              {/* Text layer properties */}
+              {selectedLayer && !selectedLayer.locked && (
+                <section className="section">
+                  <div className="section-title">
+                    <h2>Text</h2>
+                  </div>
 
-              <div className="prop-group">
-                <div className="prop-group-label">Fill</div>
-                <div className="control-row control-row--2">
-                  <ColorInput label="Text color" value={selectedLayer.color} onChangeStart={pushUndoSnapshot} onChange={(color) => patchSelected({ color }, false)} />
-                  <ScrubInput label="Op" value={(selectedLayer.opacity ?? 1) * 100} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ opacity: clamp(v, 0, 100) / 100 }, false)} step={1} min={0} max={100} decimals={0} suffix="%" />
-                </div>
-              </div>
-            </section>
+                  <div className="prop-group">
+                    <div className="prop-group-label">Transform</div>
+                    <div className="control-row control-row--2">
+                      <ScrubInput label="X" value={Math.round(selectedLayer.x)} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ x: v }, false)} step={1} />
+                      <ScrubInput label="Y" value={Math.round(selectedLayer.y)} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ y: v }, false)} step={1} />
+                      <ScrubInput label="W" value={Math.round(selectedLayer.width)} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ width: Math.max(40, v) }, false)} step={1} min={40} />
+                      <ScrubInput label="R" value={selectedLayer.rotation ?? 0} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ rotation: v }, false)} step={0.5} min={-360} max={360} decimals={1} suffix="°" />
+                    </div>
+                  </div>
+
+                  <div className="prop-group">
+                    <div className="prop-group-label">Font{selStyle?.fontFamily === null ? ' · mixed' : ''}</div>
+                    <div className="font-picker">
+                      {[
+                        { label: 'Korean', korean: true, fallback: "'Apple SD Gothic Neo', sans-serif" },
+                        { label: 'Latin', korean: false, fallback: 'Helvetica, Arial, sans-serif' },
+                      ].map((group) => (
+                        <div className="font-picker-group" key={group.label}>
+                          <div className="font-group-label">{group.label}</div>
+                          <div className="font-grid">
+                            {FONTS.filter((f) => !!f.korean === group.korean).map((f) => (
+                              <button
+                                key={f.id}
+                                type="button"
+                                className={`font-item${(selStyle ? selStyle.fontFamily : selectedLayer.fontFamily) === f.id ? ' is-active' : ''}`}
+                                style={{ fontFamily: `'${f.id}', ${group.fallback}` }}
+                                onPointerDown={(event) => event.preventDefault()}
+                                onClick={() => patchSelectionSpan({ fontFamily: f.id }, { fontFamily: f.id })}
+                                title={f.label}
+                              >
+                                {f.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="prop-group">
+                    <div className="prop-group-label">Typography</div>
+                    <div className="control-row control-row--2">
+                      <ScrubInput label="Size" value={selStyle ? selStyle.fontSize : selectedLayer.fontSize} mixedFallback={selectedLayer.fontSize} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ fontSize: clamp(v, 8, 400) }, { fontSize: clamp(v, 8, 400) }, false)} step={1} min={8} max={400} />
+                      <ScrubInput label="Wt" value={selStyle ? selStyle.fontWeight : selectedLayer.fontWeight} mixedFallback={selectedLayer.fontWeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, { fontWeight: clamp(Math.round(v / 50) * 50, 100, 950) }, false)} step={5} min={100} max={950} decimals={0} />
+                      <ScrubInput label="Line" value={selectedLayer.lineHeight} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ lineHeight: clamp(v, 0.5, 3) }, false)} step={0.005} min={0.5} max={3} decimals={2} />
+                      <ScrubInput label="Track" value={selStyle ? selStyle.letterSpacing : selectedLayer.letterSpacing} mixedFallback={selectedLayer.letterSpacing} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelectionSpan({ letterSpacing: clamp(v, -20, 50) }, { letterSpacing: clamp(v, -20, 50) }, false)} step={0.05} min={-20} max={50} decimals={1} />
+                    </div>
+                    <div className="control-row control-row--3">
+                      <IconButton label="Align left" active={selectedLayer.align === 'left'} onClick={() => patchSelected({ align: 'left' })}><AlignLeft size={14} /></IconButton>
+                      <IconButton label="Align center" active={selectedLayer.align === 'center'} onClick={() => patchSelected({ align: 'center' })}><AlignCenter size={14} /></IconButton>
+                      <IconButton label="Align right" active={selectedLayer.align === 'right'} onClick={() => patchSelected({ align: 'right' })}><AlignRight size={14} /></IconButton>
+                    </div>
+                  </div>
+
+                  <div className="prop-group">
+                    <div className="prop-group-label">Fill</div>
+                    <div className="control-row control-row--2">
+                      <ColorInput label="Text color" value={selectedLayer.color} onChangeStart={pushUndoSnapshot} onChange={(color) => patchSelected({ color }, false)} />
+                      <ScrubInput label="Op" value={(selectedLayer.opacity ?? 1) * 100} onChangeStart={pushUndoSnapshot} onChange={(v) => patchSelected({ opacity: clamp(v, 0, 100) / 100 }, false)} step={1} min={0} max={100} decimals={0} suffix="%" />
+                    </div>
+                  </div>
+                </section>
+              )}
+            </>
           )}
 
-          {/* Warp */}
-          <section className="section">
-            <div className="section-title">
-              <h2>Warp</h2>
-              <span>{previewWarp ? 'On' : 'Off'}</span>
-            </div>
-            <div className="field-stack">
-              <Field label="Gravity" min={0} max={1100} value={settings.strength} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ strength: value }, false)} />
-              <Field label="Decay" min={0.8} max={2.4} step={0.01} value={settings.decay} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ decay: value }, false)} />
-              <Field label="Softness" min={1} max={120} value={settings.epsilon} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ epsilon: value }, false)} />
-              <Field label="Stride" min={4} max={20} value={settings.pointSpacing} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSpacing: value }, false)} />
-              <Field label="Point size" min={0} max={3} step={0.01} value={settings.pointSize} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSize: value }, false)} />
-              <Field label="Motion" min={0} max={0.8} step={0.01} value={settings.motionAmount} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ motionAmount: value }, false)} />
-            </div>
-            <div className="check-list">
-              <label>
-                <input type="checkbox" checked={settings.animate} onChange={(e) => patchSettings({ animate: e.target.checked })} />
-                Animate
-              </label>
-              <label>
-                <input type="checkbox" checked={settings.showField} onChange={(e) => patchSettings({ showField: e.target.checked })} />
-                Field grid
-              </label>
-              <label>
-                <input type="checkbox" checked={settings.showMasses} onChange={(e) => patchSettings({ showMasses: e.target.checked })} />
-                Mass points
-              </label>
-            </div>
-            <button className={`primary-action ${needsRender ? 'is-ready' : ''}`} type="button" onClick={handleRender}>
-              <Sparkles size={14} />
-              Render
-            </button>
-          </section>
+          {panelTab === 'warp' && (
+            <>
+              {/* Warp */}
+              <section className="section">
+                <div className="section-title">
+                  <h2>Warp</h2>
+                  <span>{previewWarp ? 'On' : 'Off'}</span>
+                </div>
+                <div className="field-stack">
+                  <Field label="Gravity" min={0} max={1100} value={settings.strength} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ strength: value }, false)} />
+                  <Field label="Decay" min={0.8} max={2.4} step={0.01} value={settings.decay} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ decay: value }, false)} />
+                  <Field label="Softness" min={1} max={120} value={settings.epsilon} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ epsilon: value }, false)} />
+                  <Field label="Stride" min={4} max={20} value={settings.pointSpacing} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSpacing: value }, false)} />
+                  <Field label="Point size" min={0} max={3} step={0.01} value={settings.pointSize} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ pointSize: value }, false)} />
+                  <Field label="Motion" min={0} max={0.8} step={0.01} value={settings.motionAmount} onChangeStart={pushUndoSnapshot} onChange={(value) => patchSettings({ motionAmount: value }, false)} />
+                </div>
+                <div className="check-list">
+                  <label>
+                    <input type="checkbox" checked={settings.animate} onChange={(e) => patchSettings({ animate: e.target.checked })} />
+                    Animate
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={settings.showField} onChange={(e) => patchSettings({ showField: e.target.checked })} />
+                    Field grid
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={settings.showMasses} onChange={(e) => patchSettings({ showMasses: e.target.checked })} />
+                    Mass points
+                  </label>
+                </div>
+                <button className={`primary-action ${needsRender ? 'is-ready' : ''}`} type="button" onClick={handleRender}>
+                  <Sparkles size={14} />
+                  Render
+                </button>
+              </section>
+            </>
+          )}
 
-          {/* Sound */}
-          <section className={`section ${hasRendered ? '' : 'is-inactive'}`}>
-            <div className="section-title">
-              <h2>Sound</h2>
-              <span className={`live-badge ${hasRendered && sonificationEngineRef.current?.isRunning ? 'is-live' : ''}`}>
-                {hasRendered && sonificationEngineRef.current?.isRunning ? 'Live' : 'Off'}
-              </span>
-            </div>
-            <div className="control-row control-row--fill-icon">
-              <button
-                type="button"
-                className={`primary-action ${hasRendered && !sonificationEngineRef.current?.isRunning ? 'is-ready' : ''}`}
-                disabled={!hasRendered}
-                onClick={() => {
-                  const engine = sonificationEngineRef.current ?? new SonificationEngine(soundSettings);
-                  sonificationEngineRef.current = engine;
-                  if (engine.isRunning) {
-                    engine.stop();
-                    setSoundSettings((s) => ({ ...s, enabled: false }));
-                  } else {
-                    engine.setSettings(soundSettings);
-                    engine.start();
-                    setSoundSettings((s) => ({ ...s, enabled: true }));
-                  }
-                }}
-              >
-                {sonificationEngineRef.current?.isRunning
-                  ? <><Square size={12} /> Stop sound</>
-                  : <><Play size={12} /> Play sound</>}
-              </button>
-              <IconButton
-                label="Generate new sound variation"
-                disabled={!hasRendered || !sonificationEngineRef.current?.isRunning}
-                onClick={() => setSoundSettings(s => ({ ...s, seed: Math.floor(Math.random() * 1000000) }))}
-              >
-                <RotateCw size={14} />
-              </IconButton>
-            </div>
-            <div className="field-stack">
-              <Field
-                label="Volume"
-                min={0}
-                max={1}
-                step={0.01}
-                value={soundSettings.volume}
-                onChange={(v) => {
-                  setSoundSettings((s) => ({ ...s, volume: v }));
-                  sonificationEngineRef.current?.setVolume(v);
-                }}
-              />
-            </div>
-            <div className="check-list">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={includeSoundInMp4}
-                  disabled={!hasRendered}
-                  onChange={(e) => setIncludeSoundInMp4(e.target.checked)}
-                />
-                Include sound in MP4
-              </label>
-            </div>
-          </section>
+          {panelTab === 'sound' && (
+            <>
+              {/* Sound */}
+              <section className={`section ${hasRendered ? '' : 'is-inactive'}`}>
+                <div className="section-title">
+                  <h2>Sound</h2>
+                  <span className={`live-badge ${hasRendered && sonificationEngineRef.current?.isRunning ? 'is-live' : ''}`}>
+                    {hasRendered && sonificationEngineRef.current?.isRunning ? 'Live' : 'Off'}
+                  </span>
+                </div>
+                <div className="control-row control-row--fill-icon">
+                  <button
+                    type="button"
+                    className={`primary-action ${hasRendered && !sonificationEngineRef.current?.isRunning ? 'is-ready' : ''}`}
+                    disabled={!hasRendered}
+                    onClick={() => {
+                      const engine = sonificationEngineRef.current ?? new SonificationEngine(soundSettings);
+                      sonificationEngineRef.current = engine;
+                      if (engine.isRunning) {
+                        engine.stop();
+                        setSoundSettings((s) => ({ ...s, enabled: false }));
+                      } else {
+                        engine.setSettings(soundSettings);
+                        engine.start();
+                        setSoundSettings((s) => ({ ...s, enabled: true }));
+                      }
+                    }}
+                  >
+                    {sonificationEngineRef.current?.isRunning
+                      ? <><Square size={12} /> Stop sound</>
+                      : <><Play size={12} /> Play sound</>}
+                  </button>
+                  <IconButton
+                    label="Generate new sound variation"
+                    disabled={!hasRendered || !sonificationEngineRef.current?.isRunning}
+                    onClick={() => setSoundSettings(s => ({ ...s, seed: Math.floor(Math.random() * 1000000) }))}
+                  >
+                    <RotateCw size={14} />
+                  </IconButton>
+                </div>
+                <div className="field-stack">
+                  <Field
+                    label="Volume"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={soundSettings.volume}
+                    onChange={(v) => {
+                      setSoundSettings((s) => ({ ...s, volume: v }));
+                      sonificationEngineRef.current?.setVolume(v);
+                    }}
+                  />
+                </div>
+              </section>
+            </>
+          )}
+
+          {panelTab === 'export' && (
+            <>
+              <section className="section">
+                <div className="section-title"><h2>Still</h2></div>
+                <div className="control-row control-row--2">
+                  <button className="solid" type="button" onClick={exportPng}><Download size={13} /> PNG</button>
+                  <button type="button" onClick={exportPdf}><Download size={13} /> PDF</button>
+                </div>
+              </section>
+              <section className="section">
+                <div className="section-title">
+                  <h2>Motion</h2>
+                  <span>{recording ? 'Recording…' : ''}</span>
+                </div>
+                <div className="control-row control-row--3">
+                  <button type="button" onClick={exportWebm} disabled={recording}><Film size={13} /> WEBM</button>
+                  <button type="button" onClick={exportMp4} disabled={recording}><Film size={13} /> MP4</button>
+                  <button type="button" onClick={exportGif} disabled={recording}><Film size={13} /> GIF</button>
+                </div>
+                <div className="check-list">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={includeSoundInMp4}
+                      disabled={!hasRendered}
+                      onChange={(e) => setIncludeSoundInMp4(e.target.checked)}
+                    />
+                    Include sound in MP4
+                  </label>
+                </div>
+              </section>
+            </>
+          )}
+
+          {panelTab === 'help' && (
+            <>
+              {SHORTCUTS.map((group) => (
+                <section className="section" key={group.group}>
+                  <div className="section-title"><h2>{group.group}</h2></div>
+                  <dl className="shortcut-list">
+                    {group.items.map(([keys, action]) => (
+                      <div key={keys}>
+                        <dt><kbd>{keys}</kbd></dt>
+                        <dd>{action}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </>
+          )}
         </div>
-
-        <footer className="export-bar">
-          <div className="prop-group-label">Export</div>
-          <div className="control-row control-row--2">
-            <button className="solid" type="button" onClick={exportPng}><Download size={13} /> PNG</button>
-            <button type="button" onClick={exportPdf}><Download size={13} /> PDF</button>
-          </div>
-          <div className="control-row control-row--3">
-            <button type="button" onClick={exportWebm} disabled={recording}><Film size={13} /> WEBM</button>
-            <button type="button" onClick={exportMp4} disabled={recording}><Film size={13} /> MP4</button>
-            <button type="button" onClick={exportGif} disabled={recording}><Film size={13} /> GIF</button>
-          </div>
-        </footer>
       </aside>
 
       <section
